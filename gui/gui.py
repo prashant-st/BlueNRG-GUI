@@ -12,7 +12,7 @@ import sys
 macAdresses = ('F1:E5:A8:F0:96:80', 'E4:69:61:26:E6:23')
 sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
 acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
-process = []
+processes = [Process() for count in macAdresses]
 
 root = Tk()
 root.title("Multimodal Seizure Detection Utility")
@@ -26,7 +26,7 @@ class MyDelegate(btle.DefaultDelegate):
 
     def handleNotification(self, cHandle, data):
         data_unpacked=unpack('hhhhhhIH', data)
-        print(data_unpacked);
+        print(data_unpacked)
 
 def run_process(adress, data):
     # Connections
@@ -56,15 +56,18 @@ def run_process(adress, data):
 
 def connectProcedure():
     # Create shared memory
-    global process
+    global processes
     data = Array('h', 12)
     print("Connecting the devices, syncing and starting...")
     for idx, name in enumerate(macAdresses):
-        process.append(Process(target=run_process, args=(macAdresses[idx], data)))
+        process = Process(target=run_process, args=(macAdresses[idx], data))
+        processes[idx] = process
+        process.start()
+
+def disconnectProcedure():
     for idx, name in enumerate(macAdresses):
-        process[idx].start()
-    for idx, name in enumerate(macAdresses):
-        process[idx].join()
+        processes[idx].terminate()
+    print("Devices disconnected")
 
 def chooseSaveDirectory():
     print("Choose save directory...")
@@ -79,6 +82,8 @@ root.rowconfigure(0, weight=1)
 # Buttons
 connectButton = Button(mainFrame, text="CONNECT, SYNC AND START", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20)
 connectButton.grid(row=0, column=0, padx=20, pady=100)
+startButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20)
+startButton.grid(row=1, column=0, padx=20, pady=5)
 saveButton = Button(mainFrame, text="CHOOSE SAVE DIRECTORY", bg="orange", fg="white", command=chooseSaveDirectory, padx=20, pady=20)
 saveButton.grid(row=2, column=0, padx=20, pady=100)
 
