@@ -4,12 +4,15 @@ matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import os
-from multiprocessing import Pool
+from multiprocessing import Pool, Array, Process
+from bluepy import btle
+from struct import *
+import sys
 
-BlueNRG_devices = []
-connected=False
-
-macAdresses=('F1:E5:A8:F0:96:80', 'E4:69:61:26:E6:23')
+macAdresses = ('F1:E5:A8:F0:96:80', 'E4:69:61:26:E6:23')
+sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
+acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
+process = []
 
 root = Tk()
 root.title("Multimodal Seizure Detection Utility")
@@ -17,15 +20,51 @@ root.title("Multimodal Seizure Detection Utility")
 root.geometry("1000x600")
 root.resizable(0, 0)
 
-def run_process(adress):
-    os.system('python peripheral.py {}'.format(adress))
+class MyDelegate(btle.DefaultDelegate):
+    def __init__(self):
+        btle.DefaultDelegate.__init__(self)
+
+    def handleNotification(self, cHandle, data):
+        data_unpacked=unpack('hhhhhhIH', data)
+        print(data_unpacked);
+
+def run_process(adress, data):
+    # Connections
+    print("Connecting to BlueNRG2...")
+    BlueNRG = btle.Peripheral(adress, btle.ADDR_TYPE_RANDOM)
+    BlueNRG.setDelegate(MyDelegate())
+    print("BlueNRG2 Services...")
+    for svc in BlueNRG.services:
+        print(str(svc))
+
+    # Service retrieval
+    BlueNRG_service = BlueNRG.getServiceByUUID(sensor_serive_UUID)
+
+    # Char
+    print("BlueNRG2 Characteristics...")
+    BlueNRG_1_acc_char = BlueNRG_service.getCharacteristics(acc_UUID)[0]
+
+    # Setting the notifications on
+    BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
+
+    while True:
+        if BlueNRG.waitForNotifications(1.0):
+            # handleNotification() was called
+            continue
+
+        print("Waiting...")
 
 def connectProcedure():
+    # Create shared memory
+    global process
+    data = Array('h', 12)
     print("Connecting the devices, syncing and starting...")
-    pool = Pool()
-    pool.map(run_process, macAdresses)
-    pool.close()
-    pool.join()
+    for idx, name in enumerate(macAdresses):
+        process.append(Process(target=run_process, args=(macAdresses[idx], data)))
+    for idx, name in enumerate(macAdresses):
+        process[idx].start()
+    for idx, name in enumerate(macAdresses):
+        process[idx].join()
 
 def chooseSaveDirectory():
     print("Choose save directory...")
