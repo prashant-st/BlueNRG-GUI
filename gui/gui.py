@@ -28,16 +28,16 @@ class MyDelegate(btle.DefaultDelegate):
         self.address = _address
         self.dataarray = _dataarray
 
-    def handleNotification(self, cHandle, data):         #Need to distinguish between pheripherals
+    def handleNotification(self, cHandle, data):
         data_unpacked=unpack('hhhhhhIH', data)
+        # Device identification and allocation in the shared array
         if self.address == 'F1:E5:A8:F0:96:80':
-            self.dataarray[0] = data_unpacked[0]
-            self.dataarray[1] = data_unpacked[1]
-            self.dataarray[2] = data_unpacked[2]
-            self.dataarray[3] = data_unpacked[3]
-            self.dataarray[4] = data_unpacked[4]
-            self.dataarray[5] = data_unpacked[5]
-        print(self.dataarray)
+            for i in range(0, 5):
+                self.dataarray[i] = data_unpacked[i]
+        if self.address == 'E4:69:61:26:E6:23':
+            for i in range(0, 5):
+                self.dataarray[i+6] = data_unpacked[i]
+
 
 def run_process(address, data):
     # Connections
@@ -82,27 +82,13 @@ def disconnectProcedure():
 def chooseSaveDirectory():
     print("Choose save directory...")
 
-def animate(i, ys1, ys2, ys3):
+def animate(i, ys):
     global data
 
-    # Add y to list
-    acc_x = data[0]
-    acc_y = data[1]
-    acc_z = data[2]
-
-    ys1.append(acc_x)
-    ys2.append(acc_y)
-    ys3.append(acc_z)
-
-    # Limit y list to set number of items
-    ys1 = ys1[-x_len:]
-    ys2 = ys2[-x_len:]
-    ys3 = ys3[-x_len:]
-
-    # Update line with new Y values
-    line[0].set_ydata(ys1)
-    line[1].set_ydata(ys2)
-    line[2].set_ydata(ys3)
+    for idx in range(3):
+        ys[idx].append(data[idx])
+        ys[idx] = ys[idx][-x_len:]
+        line[idx].set_ydata(ys[idx])
 
     return line
 
@@ -123,19 +109,20 @@ saveButton.grid(row=2, column=0, padx=20, pady=100)
 
 # Plot Initialization
 # Parameters
+ys = []
 x_len = 300         # Number of points to display
-y_range = [-2000, 2000]  # Range of possible Y values to display
+y_range = [-15000, 15000]  # Range of possible Y values to display
 xs = list(range(0, x_len))
-ys1 = [0] * x_len
-ys2 = [0] * x_len
-ys3 = [0] * x_len
+for i in range(3):
+    ys.append([0] * x_len)
+
 
 f = Figure(figsize=(5, 5), dpi=100)
 a = f.add_subplot(111)
 # Create a blank line. We will update the line in animate
-line1, = a.plot(xs, ys1)
-line2, = a.plot(xs, ys2)
-line3, = a.plot(xs, ys3)
+line1, = a.plot(xs, ys[0])
+line2, = a.plot(xs, ys[1])
+line3, = a.plot(xs, ys[2])
 line = [line1, line2, line3]
 a.set_ylim(y_range)
 a.set_title('Device 1 Data')
@@ -145,14 +132,8 @@ canvas = FigureCanvasTkAgg(f, master=root)
 canvas.draw()
 canvas.get_tk_widget().grid(row=0, column=1, sticky=(N, W, E, S))
 
-
-
 # Set up plot to call animate() function periodically
-ani = animation.FuncAnimation(f, animate, fargs=(ys1, ys2, ys3,), interval=50, blit=False)
-
-
-
-
+ani = animation.FuncAnimation(f, animate, fargs=(ys,), interval=50, blit=False)
 
 while True:
     root.update_idletasks()
