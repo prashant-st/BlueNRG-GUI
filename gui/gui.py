@@ -1,4 +1,5 @@
 from tkinter import *
+from tkinter import ttk
 import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -13,6 +14,7 @@ import matplotlib.animation as animation
 macAdresses = ('F1:E5:A8:F0:96:80', 'E4:69:61:26:E6:23')
 sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
 acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
+deviceidx = 0
 processes = [Process() for count in macAdresses]
 data = Array('h', 12)
 
@@ -32,11 +34,11 @@ class MyDelegate(btle.DefaultDelegate):
         data_unpacked=unpack('hhhhhhIH', data)
         # Device identification and allocation in the shared array
         if self.address == 'F1:E5:A8:F0:96:80':
-            for i in range(0, 5):
+            for i in range(3):
                 self.dataarray[i] = data_unpacked[i]
         if self.address == 'E4:69:61:26:E6:23':
-            for i in range(0, 5):
-                self.dataarray[i+6] = data_unpacked[i]
+            for i in range(3):
+                self.dataarray[i+3] = data_unpacked[i]
 
 
 def run_process(address, data):
@@ -82,11 +84,19 @@ def disconnectProcedure():
 def chooseSaveDirectory():
     print("Choose save directory...")
 
+def changeDevice(event):
+    global deviceidx
+    deviceidx = combo.current() * 3
+    title = "Device " + str(combo.current()+1) + " Data"
+    a.set_title(title)
+
+
 def animate(i, ys):
     global data
+    global deviceidx
 
     for idx in range(3):
-        ys[idx].append(data[idx])
+        ys[idx].append(data[idx + deviceidx])
         ys[idx] = ys[idx][-x_len:]
         line[idx].set_ydata(ys[idx])
 
@@ -99,13 +109,22 @@ root.columnconfigure(0, weight=0)
 root.columnconfigure(1, weight=1)
 root.rowconfigure(0, weight=1)
 
+
+# Combobox
+combo = ttk.Combobox(root, values = ["Device 1", "Device 2"])
+combo.grid(row=1, column=1, padx=20, pady=5)
+combo.current(0)
+combo.bind("<<ComboboxSelected>>", changeDevice)
+
 # Buttons
 connectButton = Button(mainFrame, text="CONNECT, SYNC AND START", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20)
 connectButton.grid(row=0, column=0, padx=20, pady=100)
 startButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20)
 startButton.grid(row=1, column=0, padx=20, pady=5)
 saveButton = Button(mainFrame, text="CHOOSE SAVE DIRECTORY", bg="orange", fg="white", command=chooseSaveDirectory, padx=20, pady=20)
-saveButton.grid(row=2, column=0, padx=20, pady=100)
+saveButton.grid(row=3, column=0, padx=20, pady=100)
+
+
 
 # Plot Initialization
 # Parameters
@@ -115,7 +134,6 @@ y_range = [-15000, 15000]  # Range of possible Y values to display
 xs = list(range(0, x_len))
 for i in range(3):
     ys.append([0] * x_len)
-
 
 f = Figure(figsize=(5, 5), dpi=100)
 a = f.add_subplot(111)
