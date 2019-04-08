@@ -23,18 +23,27 @@ root.geometry("1000x600")
 root.resizable(0, 0)
 
 class MyDelegate(btle.DefaultDelegate):
-    def __init__(self):
+    def __init__(self, _address, _dataarray):
         btle.DefaultDelegate.__init__(self)
+        self.address = _address
+        self.dataarray = _dataarray
 
     def handleNotification(self, cHandle, data):         #Need to distinguish between pheripherals
         data_unpacked=unpack('hhhhhhIH', data)
-        print(data_unpacked)
+        if self.address == 'F1:E5:A8:F0:96:80':
+            self.dataarray[0] = data_unpacked[0]
+            self.dataarray[1] = data_unpacked[1]
+            self.dataarray[2] = data_unpacked[2]
+            self.dataarray[3] = data_unpacked[3]
+            self.dataarray[4] = data_unpacked[4]
+            self.dataarray[5] = data_unpacked[5]
+        print(self.dataarray)
 
-def run_process(adress, data):
+def run_process(address, data):
     # Connections
     print("Connecting to BlueNRG2...")
-    BlueNRG = btle.Peripheral(adress, btle.ADDR_TYPE_RANDOM)
-    BlueNRG.setDelegate(MyDelegate())
+    BlueNRG = btle.Peripheral(address, btle.ADDR_TYPE_RANDOM)
+    BlueNRG.setDelegate(MyDelegate(address, data))
     print("BlueNRG2 Services...")
     for svc in BlueNRG.services:
         print(str(svc))
