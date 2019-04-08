@@ -24,6 +24,7 @@ root.title("Multimodal Seizure Detection Utility")
 root.geometry("1000x600")
 root.resizable(0, 0)
 
+
 class MyDelegate(btle.DefaultDelegate):
     def __init__(self, _address, _dataarray):
         btle.DefaultDelegate.__init__(self)
@@ -81,6 +82,12 @@ def disconnectProcedure():
         processes[idx].terminate()
     print("Devices disconnected")
 
+def closeProcedure():
+    for idx, name in enumerate(macAdresses):
+        processes[idx].terminate()
+    print("Application closed by user's request")
+    root.destroy()
+
 def chooseSaveDirectory():
     print("Choose save directory...")
 
@@ -108,7 +115,7 @@ mainFrame.grid(column=0, row=0, sticky=(N, W, E, S))
 root.columnconfigure(0, weight=0)
 root.columnconfigure(1, weight=1)
 root.rowconfigure(0, weight=1)
-
+root.protocol('WM_DELETE_WINDOW', closeProcedure)
 
 # Combobox
 combo = ttk.Combobox(root, values = ["Device 1", "Device 2"])
