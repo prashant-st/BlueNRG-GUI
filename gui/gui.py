@@ -5,7 +5,7 @@ matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import os
-from multiprocessing import Pool, Array, Process
+from multiprocessing import Value, Array, Process
 from bluepy import btle
 from struct import *
 import sys
@@ -20,6 +20,7 @@ acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
 deviceidx = 0
 processes = [Process() for count in macAdresses]
 data = Array('h', 12)
+seizure = Value('i', 0)
 
 root = Tk()
 root.title("Multimodal Seizure Detection Utility")
@@ -49,7 +50,7 @@ class MyDelegate(btle.DefaultDelegate):
             for i in range(3):
                 self.dataarray[i+3] = data_unpacked[i]
         # Save the data
-        self.save_file.write(str(data_unpacked) + "\n")
+        self.save_file.write(str(data_unpacked) + " " + str(seizure.value) + "\n")
 
 def run_process(address, data):
     # Connections
@@ -92,8 +93,11 @@ def connectProcedure():
 
 def disconnectProcedure():
     os.chdir("..")
-    for idx, name in enumerate(macAdresses):
-        processes[idx].terminate()
+    try:
+        for idx, name in enumerate(macAdresses):
+            processes[idx].terminate()
+    except AttributeError:
+        pass
     print("Devices disconnected")
 
 def closeProcedure():
@@ -105,8 +109,16 @@ def closeProcedure():
     print("Application closed by user's request")
     root.destroy()
 
-def chooseSaveDirectory():
-    print("Choose save directory...")
+def seizureSave():
+    global seizure
+    if seizure.value == 0:
+        seizureButton.configure(bg="red")
+        seizure.value = 1
+        print("Seizure identification was added to the timestamps...")
+    else:
+        seizureButton.configure(bg="orange")
+        seizure.value = 0
+        print("Seizure identification was removed from the timestamps...")
 
 def changeDevice(event):
     global deviceidx
@@ -145,8 +157,8 @@ connectButton = Button(mainFrame, text="CONNECT, SYNC AND START", bg="orange", f
 connectButton.grid(row=0, column=0, padx=20, pady=100)
 startButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20)
 startButton.grid(row=1, column=0, padx=20, pady=5)
-saveButton = Button(mainFrame, text="CHOOSE SAVE DIRECTORY", bg="orange", fg="white", command=chooseSaveDirectory, padx=20, pady=20)
-saveButton.grid(row=3, column=0, padx=20, pady=100)
+seizureButton = Button(mainFrame, text="IDENTIFY SEIZURE", bg="orange", fg="white", command=seizureSave, padx=20, pady=20)
+seizureButton.grid(row=3, column=0, padx=20, pady=100)
 
 
 
