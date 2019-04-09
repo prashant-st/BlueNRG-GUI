@@ -10,6 +10,9 @@ from bluepy import btle
 from struct import *
 import sys
 import matplotlib.animation as animation
+import numpy as np
+import datetime as dt
+
 
 macAdresses = ('F1:E5:A8:F0:96:80', 'E4:69:61:26:E6:23')
 sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
@@ -30,6 +33,11 @@ class MyDelegate(btle.DefaultDelegate):
         btle.DefaultDelegate.__init__(self)
         self.address = _address
         self.dataarray = _dataarray
+        # Open file to save later on
+        self.save_file = open("Output - " + str(_address) + ".txt", "w")
+
+    def __del__(self):
+        self.save_file.close()
 
     def handleNotification(self, cHandle, data):
         data_unpacked=unpack('hhhhhhIH', data)
@@ -40,7 +48,8 @@ class MyDelegate(btle.DefaultDelegate):
         if self.address == 'E4:69:61:26:E6:23':
             for i in range(3):
                 self.dataarray[i+3] = data_unpacked[i]
-
+        # Save the data
+        self.save_file.write(str(data_unpacked) + "\n")
 
 def run_process(address, data):
     # Connections
@@ -72,19 +81,27 @@ def connectProcedure():
     # Create shared memory
     global processes
     print("Connecting the devices, syncing and starting...")
+    # Create dir to save data
+    cwd = os.getcwd()
+    os.mkdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
+    os.chdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     for idx, name in enumerate(macAdresses):
         process = Process(target=run_process, args=(macAdresses[idx], data))
         processes[idx] = process
         process.start()
 
 def disconnectProcedure():
+    os.chdir("..")
     for idx, name in enumerate(macAdresses):
         processes[idx].terminate()
     print("Devices disconnected")
 
 def closeProcedure():
-    for idx, name in enumerate(macAdresses):
-        processes[idx].terminate()
+    try:
+        for idx, name in enumerate(macAdresses):
+            processes[idx].terminate()
+    except AttributeError:
+        pass
     print("Application closed by user's request")
     root.destroy()
 
@@ -137,7 +154,7 @@ saveButton.grid(row=3, column=0, padx=20, pady=100)
 # Parameters
 ys = []
 x_len = 300         # Number of points to display
-y_range = [-15000, 15000]  # Range of possible Y values to display
+y_range = [-5000, 5000]  # Range of possible Y values to display
 xs = list(range(0, x_len))
 for i in range(3):
     ys.append([0] * x_len)
