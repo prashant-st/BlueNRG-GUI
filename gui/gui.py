@@ -4,6 +4,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 import os
 from multiprocessing import Value, Array, Process
 from bluepy import btle
@@ -27,6 +28,7 @@ root.title("Multimodal Seizure Detection Utility")
 # root.iconbitmap('snake.ico')
 root.geometry("1000x600")
 root.resizable(0, 0)
+plt.style.use('ggplot')
 
 
 class MyDelegate(btle.DefaultDelegate):
@@ -166,7 +168,7 @@ seizureButton.grid(row=3, column=0, padx=20, pady=100)
 # Parameters
 ys = []
 x_len = 300         # Number of points to display
-y_range = [-5000, 5000]  # Range of possible Y values to display
+y_range = [-50000, 50000]  # Range of possible Y values to display
 xs = list(range(0, x_len))
 for i in range(3):
     ys.append([0] * x_len)
@@ -178,6 +180,7 @@ line1, = a.plot(xs, ys[0])
 line2, = a.plot(xs, ys[1])
 line3, = a.plot(xs, ys[2])
 line = [line1, line2, line3]
+
 a.set_ylim(y_range)
 a.set_title('Device 1 Data')
 a.set_xlabel('Showing the last 300 samples')
