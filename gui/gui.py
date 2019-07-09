@@ -15,7 +15,7 @@ import numpy as np
 import datetime as dt
 
 
-macAdresses = ('F1:E5:A8:F0:96:80', 'E4:69:61:26:E6:23')
+macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00'] #'D7:25:B6:3F:9B:06'
 sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
 acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
 deviceidx = 0
@@ -45,12 +45,19 @@ class MyDelegate(btle.DefaultDelegate):
     def handleNotification(self, cHandle, data):
         data_unpacked=unpack('hhhhhhIH', data)
         # Device identification and allocation in the shared array
-        if self.address == 'F1:E5:A8:F0:96:80':
+        if self.address == macAdresses[0]:
             for i in range(3):
                 self.dataarray[i] = data_unpacked[i]
-        if self.address == 'E4:69:61:26:E6:23':
+        if self.address == macAdresses[1]:
             for i in range(3):
                 self.dataarray[i+3] = data_unpacked[i]
+        if self.address == macAdresses[2]:
+            for i in range(3):
+                self.dataarray[i+6] = data_unpacked[i]
+        if self.address == macAdresses[3]:
+            for i in range(3):
+                self.dataarray[i+9] = data_unpacked[i]
+        
         # Save the data
         self.save_file.write(str(data_unpacked) + " " + str(seizure.value) + "\n")
 
@@ -122,9 +129,27 @@ def seizureSave():
         seizure.value = 0
         print("Seizure identification was removed from the timestamps...")
 
+def identifyDevices(entry1, entry2, entry3, entry4):
+    connectButton.config(state="normal")
+    startButton.config(state="normal")
+    seizureButton.config(state="normal")
+    macAdresses[0] = entry1
+    macAdresses[1] = entry2
+    macAdresses[2] = entry3
+    macAdresses[3] = entry4
+    
 def changeDevice(event):
     global deviceidx
+    global line
+    #Remove data from previous device
+    for i in range(x_len):
+        for idx in range(3):
+            ys[idx].append(0)
+            ys[idx] = ys[idx][-x_len:]
+            line[idx].set_ydata(ys[idx])
+            
     deviceidx = combo.current() * 3
+    
     title = "Device " + str(combo.current()+1) + " Data"
     a.set_title(title)
 
@@ -144,25 +169,43 @@ def animate(i, ys):
 mainFrame = Frame(root, width=500, height=500)
 mainFrame.grid(column=0, row=0, sticky=(N, W, E, S))
 root.columnconfigure(0, weight=0)
-root.columnconfigure(1, weight=1)
+root.columnconfigure(1, weight=0)
+root.columnconfigure(2, weight=1)
 root.rowconfigure(0, weight=1)
 root.protocol('WM_DELETE_WINDOW', closeProcedure)
 
 # Combobox
-combo = ttk.Combobox(root, values = ["Device 1", "Device 2"])
-combo.grid(row=1, column=1, padx=20, pady=5)
+combo = ttk.Combobox(root, values = ["Device 1", "Device 2", "Device 3", "Device 4"])
+combo.grid(row=1, column=2, padx=10, pady=5)
 combo.current(0)
 combo.bind("<<ComboboxSelected>>", changeDevice)
 
 # Buttons
-connectButton = Button(mainFrame, text="CONNECT, SYNC AND START", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20)
-connectButton.grid(row=0, column=0, padx=20, pady=100)
-startButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20)
-startButton.grid(row=1, column=0, padx=20, pady=5)
-seizureButton = Button(mainFrame, text="IDENTIFY SEIZURE", bg="orange", fg="white", command=seizureSave, padx=20, pady=20)
-seizureButton.grid(row=3, column=0, padx=20, pady=100)
+identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=lambda: identifyDevices(entry1.get(), entry2.get(), entry3.get(), entry4.get()), padx=20, pady=20)
+identifyDevicesButton.grid(row=4, column=0, columnspan=2, padx=10, pady=50)
+connectButton = Button(mainFrame, text="CONNECT, SYNC AND START", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
+connectButton.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
+startButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20, state="disable")
+startButton.grid(row=6, column=0, columnspan=2, padx=10, pady=5)
+seizureButton = Button(mainFrame, text="IDENTIFY SEIZURE", bg="orange", fg="white", command=seizureSave, padx=20, pady=20, state="disable")
+seizureButton.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
 
+    
+#Entry
+entry1 = Entry(mainFrame, font=40)
+entry1.grid(row=0, column=1, padx=10, pady=1)
+entry2 = Entry(mainFrame, font=40)
+entry2.grid(row=1, column=1, padx=10, pady=1)
+entry3 = Entry(mainFrame, font=40)
+entry3.grid(row=2, column=1, padx=10, pady=1)
+entry4 = Entry(mainFrame, font=40)
+entry4.grid(row=3, column=1, padx=10, pady=1)
 
+#Labels for entries
+label1 = Label(mainFrame, text="Device 1 - Right Arm").grid(row=0, column=0, padx=5)
+label2 = Label(mainFrame, text="Device 2 - Left Arm").grid(row=1, column=0, padx=5)
+label3 = Label(mainFrame, text="Device 3 - Right Leg").grid(row=2, column=0, padx=5)
+label4 = Label(mainFrame, text="Device 4 - Left Leg").grid(row=3, column=0, padx=5)
 
 # Plot Initialization
 # Parameters
@@ -187,7 +230,7 @@ a.set_xlabel('Showing the last 300 samples')
 
 canvas = FigureCanvasTkAgg(f, master=root)
 canvas.draw()
-canvas.get_tk_widget().grid(row=0, column=1, sticky=(N, W, E, S))
+canvas.get_tk_widget().grid(row=0, column=2, sticky=(N, W, E, S))
 
 # Set up plot to call animate() function periodically
 ani = animation.FuncAnimation(f, animate, fargs=(ys,), interval=50, blit=False)
