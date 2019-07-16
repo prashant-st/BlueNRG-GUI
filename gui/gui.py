@@ -37,7 +37,14 @@ class MyDelegate(btle.DefaultDelegate):
         self.address = _address
         self.dataarray = _dataarray
         # Open file to save later on
-        self.save_file = open("Output - " + str(_address) + ".txt", "w")
+        if self.address == macAdresses[0]:
+            self.save_file = open("Output - Right Arm.txt", "w")
+        if self.address == macAdresses[1]:
+            self.save_file = open("Output - Left Arm.txt", "w")
+        if self.address == macAdresses[2]:
+            self.save_file = open("Output - Right Leg.txt", "w")
+        if self.address == macAdresses[3]:
+            self.save_file = open("Output - Left Leg.txt", "w")
 
     def __del__(self):
         self.save_file.close()
@@ -88,6 +95,10 @@ def run_process(address, data):
         print("Waiting...")
 
 def connectProcedure():
+    connectButton.config(state="disabled")
+    disconnectButton.config(state="normal")
+    seizureButton.config(state="normal")
+    identifyDevicesButton.config(state="disabled")
     # Create shared memory
     global processes
     print("Connecting the devices, syncing and starting...")
@@ -101,6 +112,10 @@ def connectProcedure():
         process.start()
 
 def disconnectProcedure():
+    connectButton.config(state="normal")
+    disconnectButton.config(state="disabled")
+    seizureButton.config(state="disabled")
+    identifyDevicesButton.config(state="normal")
     os.chdir("..")
     try:
         for idx, name in enumerate(macAdresses):
@@ -131,8 +146,9 @@ def seizureSave():
 
 def identifyDevices(entry1, entry2, entry3, entry4):
     connectButton.config(state="normal")
-    startButton.config(state="normal")
-    seizureButton.config(state="normal")
+    disconnectButton.config(state="disabled")
+    seizureButton.config(state="disabled")
+    identifyDevicesButton.config(state="normal")
     macAdresses[0] = entry1
     macAdresses[1] = entry2
     macAdresses[2] = entry3
@@ -175,43 +191,43 @@ root.rowconfigure(0, weight=1)
 root.protocol('WM_DELETE_WINDOW', closeProcedure)
 
 # Combobox
-combo = ttk.Combobox(root, values = ["Device 1", "Device 2", "Device 3", "Device 4"])
+combo = ttk.Combobox(root, values = ["Device 1 - Right Arm", "Device 2 - Left Arm", "Device 3 - Right Leg", "Device 4 - Left Leg"])
 combo.grid(row=1, column=2, padx=10, pady=5)
 combo.current(0)
 combo.bind("<<ComboboxSelected>>", changeDevice)
 
 # Buttons
-identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=lambda: identifyDevices(entry1.get(), entry2.get(), entry3.get(), entry4.get()), padx=20, pady=20)
+identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=lambda: identifyDevices(entry_RA.get(), entry_LA.get(), entry_RL.get(), entry_LL.get()), padx=20, pady=20)
 identifyDevicesButton.grid(row=4, column=0, columnspan=2, padx=10, pady=50)
 connectButton = Button(mainFrame, text="CONNECT, SYNC AND START", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
 connectButton.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
-startButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20, state="disable")
-startButton.grid(row=6, column=0, columnspan=2, padx=10, pady=5)
+disconnectButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20, state="disable")
+disconnectButton.grid(row=6, column=0, columnspan=2, padx=10, pady=5)
 seizureButton = Button(mainFrame, text="IDENTIFY SEIZURE", bg="orange", fg="white", command=seizureSave, padx=20, pady=20, state="disable")
 seizureButton.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
 
     
 #Entry
-entry1 = Entry(mainFrame, font=40)
-entry1.grid(row=0, column=1, padx=10, pady=1)
-entry2 = Entry(mainFrame, font=40)
-entry2.grid(row=1, column=1, padx=10, pady=1)
-entry3 = Entry(mainFrame, font=40)
-entry3.grid(row=2, column=1, padx=10, pady=1)
-entry4 = Entry(mainFrame, font=40)
-entry4.grid(row=3, column=1, padx=10, pady=1)
+entry_RA = Entry(mainFrame, font=40)
+entry_RA.grid(row=0, column=1, padx=10, pady=1)
+entry_LA = Entry(mainFrame, font=40)
+entry_LA.grid(row=1, column=1, padx=10, pady=1)
+entry_RL = Entry(mainFrame, font=40)
+entry_RL.grid(row=2, column=1, padx=10, pady=1)
+entry_LL = Entry(mainFrame, font=40)
+entry_LL.grid(row=3, column=1, padx=10, pady=1)
 
 #Labels for entries
-label1 = Label(mainFrame, text="Device 1 - Right Arm").grid(row=0, column=0, padx=5)
-label2 = Label(mainFrame, text="Device 2 - Left Arm").grid(row=1, column=0, padx=5)
-label3 = Label(mainFrame, text="Device 3 - Right Leg").grid(row=2, column=0, padx=5)
-label4 = Label(mainFrame, text="Device 4 - Left Leg").grid(row=3, column=0, padx=5)
+label_RA = Label(mainFrame, text="Device 1 - Right Arm").grid(row=0, column=0, padx=5)
+label_LA = Label(mainFrame, text="Device 2 - Left Arm").grid(row=1, column=0, padx=5)
+label_RL = Label(mainFrame, text="Device 3 - Right Leg").grid(row=2, column=0, padx=5)
+label_LL = Label(mainFrame, text="Device 4 - Left Leg").grid(row=3, column=0, padx=5)
 
 # Plot Initialization
 # Parameters
 ys = []
 x_len = 300         # Number of points to display
-y_range = [-50000, 50000]  # Range of possible Y values to display
+y_range = [-35000, 35000]  # Range of possible Y values to display
 xs = list(range(0, x_len))
 for i in range(3):
     ys.append([0] * x_len)
