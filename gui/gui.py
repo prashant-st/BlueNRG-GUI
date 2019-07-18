@@ -22,6 +22,7 @@ deviceidx = 0
 processes = [Process() for count in macAdresses]
 data = Array('h', 12)
 seizure = Value('i', 0)
+startNotify = Value('i', 0)
 
 root = Tk()
 root.title("Multimodal Seizure Detection Utility")
@@ -84,6 +85,10 @@ def run_process(address, data):
     print("BlueNRG2 Characteristics...")
     BlueNRG_1_acc_char = BlueNRG_service.getCharacteristics(acc_UUID)[0]
 
+    # Waiting to start
+    while startNotify.value!=1:
+        continue
+        
     # Setting the notifications on
     BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
 
@@ -97,7 +102,8 @@ def run_process(address, data):
 def connectProcedure():
     connectButton.config(state="disabled")
     disconnectButton.config(state="normal")
-    seizureButton.config(state="normal")
+    seizureButton.config(state="disabled")
+    startButton.config(state="normal")
     identifyDevicesButton.config(state="disabled")
     # Create shared memory
     global processes
@@ -110,8 +116,18 @@ def connectProcedure():
         process = Process(target=run_process, args=(macAdresses[idx], data))
         processes[idx] = process
         process.start()
-
+def startProcedure():
+    global startNotify
+    startNotify.value=1
+    connectButton.config(state="disabled")
+    disconnectButton.config(state="normal")
+    seizureButton.config(state="normal")
+    startButton.config(state="disabled")
+    identifyDevicesButton.config(state="disabled")
+       
 def disconnectProcedure():
+    global startNotify
+    startNotify.value=0
     connectButton.config(state="normal")
     disconnectButton.config(state="disabled")
     seizureButton.config(state="disabled")
@@ -199,12 +215,14 @@ combo.bind("<<ComboboxSelected>>", changeDevice)
 # Buttons
 identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=lambda: identifyDevices(entry_RA.get(), entry_LA.get(), entry_RL.get(), entry_LL.get()), padx=20, pady=20)
 identifyDevicesButton.grid(row=4, column=0, columnspan=2, padx=10, pady=50)
-connectButton = Button(mainFrame, text="CONNECT, SYNC AND START", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
+connectButton = Button(mainFrame, text="CONNECT", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
 connectButton.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
+startButton = Button(mainFrame, text="SYNC AND START", bg="orange", fg="white", command=startProcedure, padx=20, pady=20, state="disable")
+startButton.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
 disconnectButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20, state="disable")
-disconnectButton.grid(row=6, column=0, columnspan=2, padx=10, pady=5)
+disconnectButton.grid(row=7, column=0, columnspan=2, padx=10, pady=5)
 seizureButton = Button(mainFrame, text="IDENTIFY SEIZURE", bg="orange", fg="white", command=seizureSave, padx=20, pady=20, state="disable")
-seizureButton.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
+seizureButton.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
 
     
 #Entry
