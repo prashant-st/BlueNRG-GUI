@@ -6,7 +6,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import os
-from multiprocessing import Value, Array, Process
+from multiprocessing import Value, Array, Process, Lock, Barrier
 from bluepy import btle
 from struct import *
 import sys
@@ -15,14 +15,17 @@ import numpy as np
 import datetime as dt
 
 
-macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00'] #'D7:25:B6:3F:9B:06'
+macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00'] 
 sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
 acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
+start_UUID = '2c41cc24-cf13-11e1-4fdf-0002a5d5c51b'
 deviceidx = 0
 processes = [Process() for count in macAdresses]
 data = Array('h', 12)
 seizure = Value('i', 0)
 startNotify = Value('i', 0)
+syncRequest = Value('i', 0)
+syncInterval = 15600
 
 root = Tk()
 root.title("Multimodal Seizure Detection Utility")
@@ -33,10 +36,13 @@ plt.style.use('ggplot')
 
 
 class MyDelegate(btle.DefaultDelegate):
-    def __init__(self, _address, _dataarray):
+    def __init__(self, _address, _dataarray, _index):
         btle.DefaultDelegate.__init__(self)
         self.address = _address
         self.dataarray = _dataarray
+        self.index = _index
+        self.sampleNumber = 0
+        self.lastsavedData = tuple()
         # Open file to save later on
         if self.address == macAdresses[0]:
             self.save_file = open("Output - Right Arm.txt", "w")
@@ -51,29 +57,49 @@ class MyDelegate(btle.DefaultDelegate):
         self.save_file.close()
 
     def handleNotification(self, cHandle, data):
-        data_unpacked=unpack('hhhhhhIH', data)
-        # Device identification and allocation in the shared array
-        if self.address == macAdresses[0]:
-            for i in range(3):
-                self.dataarray[i] = data_unpacked[i]
-        if self.address == macAdresses[1]:
-            for i in range(3):
-                self.dataarray[i+3] = data_unpacked[i]
-        if self.address == macAdresses[2]:
-            for i in range(3):
-                self.dataarray[i+6] = data_unpacked[i]
-        if self.address == macAdresses[3]:
-            for i in range(3):
-                self.dataarray[i+9] = data_unpacked[i]
-        
-        # Save the data
-        self.save_file.write(str(data_unpacked) + " " + str(seizure.value) + "\n")
+        if syncRequest.value == 0:
+            data_unpacked=unpack('hhhhhhIH', data)
+            # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
+            if not((self.sampleNumber < syncInterval/30) and (data_unpacked[6] > 2 * syncInterval)):
+                # Device identification and allocation in the shared array
+                for i in range(3):
+                    self.dataarray[i + self.index*3] = data_unpacked[i]
+                    
+                # Save latest sample for further processing
+                self.lastsavedData = data_unpacked
 
-def run_process(address, data):
+                # Save the data
+                tempTuple = (seizure.value,)
+                self.save_file.write(str(data_unpacked + tempTuple) + "\n")
+                self.save_file.flush()
+
+                # Increment sample counter
+                self.sampleNumber = self.sampleNumber + 1
+
+                # Raise flag if one of the peripherals reaches syncInterval first
+                if self.sampleNumber == syncInterval:
+                    syncRequest.value = 1
+
+                    
+                #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
+            
+
+    def handlesyncRequest(self):
+        print("Entering handlesyncRequest... " + self.address + " Missing " + str(syncInterval-self.sampleNumber))
+        while self.sampleNumber != syncInterval:
+            tempTuple = (seizure.value,)
+            self.save_file.write(str(self.lastsavedData + tempTuple) + "\n")
+            self.sampleNumber = self.sampleNumber + 1
+        print(self.address + " is ready")
+        #Reset counter
+        self.sampleNumber = 0
+
+def run_process(address, data, index, lock, barrier):
     # Connections
     print("Connecting to BlueNRG2...")
     BlueNRG = btle.Peripheral(address, btle.ADDR_TYPE_RANDOM)
-    BlueNRG.setDelegate(MyDelegate(address, data))
+    peripheral = MyDelegate(address, data, index)
+    BlueNRG.setDelegate(peripheral)
     print("BlueNRG2 Services...")
     for svc in BlueNRG.services:
         print(str(svc))
@@ -84,6 +110,7 @@ def run_process(address, data):
     # Char
     print("BlueNRG2 Characteristics...")
     BlueNRG_1_acc_char = BlueNRG_service.getCharacteristics(acc_UUID)[0]
+    BlueNRG_1_start_char = BlueNRG_service.getCharacteristics(start_UUID)[0]
 
     # Waiting to start
     while startNotify.value!=1:
@@ -93,11 +120,19 @@ def run_process(address, data):
     BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
 
     while True:
-        if BlueNRG.waitForNotifications(1.0):
-            # handleNotification() was called
-            continue
+        if syncRequest.value == 0:
+            BlueNRG.waitForNotifications(1.0)
+        else:
+            peripheral.handlesyncRequest()
+            # Wait until all process are ready to reset
+            print(peripheral.address + " is waiting for sync")
+            barrier.wait()
+            BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, b'\x01')
+            print("Sync executed for " + peripheral.address)
+            lock.acquire()
+            syncRequest.value = 0
+            lock.release()
 
-        print("Waiting...")
 
 def connectProcedure():
     connectButton.config(state="disabled")
@@ -105,6 +140,8 @@ def connectProcedure():
     seizureButton.config(state="disabled")
     startButton.config(state="normal")
     identifyDevicesButton.config(state="disabled")
+    lock = Lock()
+    barrier = Barrier(4)
     # Create shared memory
     global processes
     print("Connecting the devices, syncing and starting...")
@@ -112,8 +149,9 @@ def connectProcedure():
     cwd = os.getcwd()
     os.mkdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     os.chdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
+    syncRequest = 0
     for idx, name in enumerate(macAdresses):
-        process = Process(target=run_process, args=(macAdresses[idx], data))
+        process = Process(target=run_process, args=(macAdresses[idx], data, idx, lock, barrier))
         processes[idx] = process
         process.start()
 def startProcedure():
@@ -124,6 +162,7 @@ def startProcedure():
     seizureButton.config(state="normal")
     startButton.config(state="disabled")
     identifyDevicesButton.config(state="disabled")
+    print("Recording started...")
        
 def disconnectProcedure():
     global startNotify
@@ -132,6 +171,8 @@ def disconnectProcedure():
     disconnectButton.config(state="disabled")
     seizureButton.config(state="disabled")
     identifyDevicesButton.config(state="normal")
+    seizureButton.configure(bg="orange")
+    seizure.value = 0
     os.chdir("..")
     try:
         for idx, name in enumerate(macAdresses):
@@ -169,6 +210,7 @@ def identifyDevices(entry1, entry2, entry3, entry4):
     macAdresses[1] = entry2
     macAdresses[2] = entry3
     macAdresses[3] = entry4
+    print("The devices' MAC adresses were changed and added")
     
 def changeDevice(event):
     global deviceidx
