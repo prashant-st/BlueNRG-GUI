@@ -15,7 +15,8 @@ import numpy as np
 import datetime as dt
 
 
-macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00'] 
+macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00']
+locations = ["Right Arm","Left Arm", "Right Leg", "Left Leg"]
 sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
 acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
 start_UUID = '2c41cc24-cf13-11e1-4fdf-0002a5d5c51b'
@@ -36,34 +37,29 @@ plt.style.use('ggplot')
 
 
 class MyDelegate(btle.DefaultDelegate):
-    def __init__(self, _address, _dataarray, _index):
+    def __init__(self, _address, _index, _location):
         btle.DefaultDelegate.__init__(self)
         self.address = _address
-        self.dataarray = _dataarray
         self.index = _index
+        self.location = _location
         self.sampleNumber = 0
         self.lastsavedData = tuple()
-        # Open file to save later on
-        if self.address == macAdresses[0]:
-            self.save_file = open("Output - Right Arm.txt", "w")
-        if self.address == macAdresses[1]:
-            self.save_file = open("Output - Left Arm.txt", "w")
-        if self.address == macAdresses[2]:
-            self.save_file = open("Output - Right Leg.txt", "w")
-        if self.address == macAdresses[3]:
-            self.save_file = open("Output - Left Leg.txt", "w")
+        # Open file to save later on     
+        self.save_file = open("Output - " + str(self.location) +".txt", "w")
+
 
     def __del__(self):
         self.save_file.close()
 
-    def handleNotification(self, cHandle, data):
+    def handleNotification(self, cHandle, data_BLE):
+        global data
         if syncRequest.value == 0:
-            data_unpacked=unpack('hhhhhhIH', data)
+            data_unpacked=unpack('hhhhhhIH', data_BLE)
             # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
             if not((self.sampleNumber < syncInterval/30) and (data_unpacked[6] > 2 * syncInterval)):
                 # Device identification and allocation in the shared array
                 for i in range(3):
-                    self.dataarray[i + self.index*3] = data_unpacked[i]
+                    data[i + self.index*3] = data_unpacked[i]
                     
                 # Save latest sample for further processing
                 self.lastsavedData = data_unpacked
@@ -94,11 +90,11 @@ class MyDelegate(btle.DefaultDelegate):
         #Reset counter
         self.sampleNumber = 0
 
-def run_process(address, data, index, lock, barrier):
+def run_process(address, index, location, lock, barrier):
     # Connections
     print("Connecting to BlueNRG2...")
     BlueNRG = btle.Peripheral(address, btle.ADDR_TYPE_RANDOM)
-    peripheral = MyDelegate(address, data, index)
+    peripheral = MyDelegate(address, index, location)
     BlueNRG.setDelegate(peripheral)
     print("BlueNRG2 Services...")
     for svc in BlueNRG.services:
@@ -151,7 +147,7 @@ def connectProcedure():
     os.chdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     syncRequest = 0
     for idx, name in enumerate(macAdresses):
-        process = Process(target=run_process, args=(macAdresses[idx], data, idx, lock, barrier))
+        process = Process(target=run_process, args=(macAdresses[idx], idx, locations[idx], lock, barrier))
         processes[idx] = process
         process.start()
 def startProcedure():
