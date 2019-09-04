@@ -15,18 +15,18 @@ import numpy as np
 import datetime as dt
 
 
-macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00']
-locations = ["Right Arm","Left Arm", "Right Leg", "Left Leg"]
+macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00', '00:00:00:00:00:00']
+locations = ["Right Arm (PPG)","Left Arm", "Right Leg", "Left Leg", "Center (ECG)"]
 sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
 acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
 start_UUID = '2c41cc24-cf13-11e1-4fdf-0002a5d5c51b'
 deviceidx = 0
 processes = [Process() for count in macAdresses]
-data = Array('h', 12)
+data = Array('h', 15)
 seizure = Value('i', 0)
 startNotify = Value('i', 0)
 syncRequest = Value('i', 0)
-syncInterval = 15600
+
 
 root = Tk()
 root.title("Multimodal Seizure Detection Utility")
@@ -44,6 +44,10 @@ class MyDelegate(btle.DefaultDelegate):
         self.location = _location
         self.sampleNumber = 0
         self.lastsavedData = tuple()
+        if self.location == "Center (ECG)":
+            self.syncInterval = 6250
+        else:
+            self.syncInterval = 5000
         # Open file to save later on     
         self.save_file = open("Output - " + str(self.location) +".txt", "w")
 
@@ -54,9 +58,14 @@ class MyDelegate(btle.DefaultDelegate):
     def handleNotification(self, cHandle, data_BLE):
         global data
         if syncRequest.value == 0:
-            data_unpacked=unpack('hhhhhhIH', data_BLE)
+            if self.location == "Center (ECG)":
+                data_unpacked=unpack('hhhHiiI', data_BLE)
+            elif self.location == "Right Arm (PPG)":
+                data_unpacked=unpack('=hhhIIIH', data_BLE)
+            else:
+                data_unpacked=unpack('hhhhhhIH', data_BLE)
             # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
-            if not((self.sampleNumber < syncInterval/30) and (data_unpacked[6] > 2 * syncInterval)):
+            if not((self.sampleNumber < self.syncInterval/30) and (data_unpacked[6] > 2 * self.syncInterval)):
                 # Device identification and allocation in the shared array
                 for i in range(3):
                     data[i + self.index*3] = data_unpacked[i]
@@ -73,7 +82,7 @@ class MyDelegate(btle.DefaultDelegate):
                 self.sampleNumber = self.sampleNumber + 1
 
                 # Raise flag if one of the peripherals reaches syncInterval first
-                if self.sampleNumber == syncInterval:
+                if self.sampleNumber == self.syncInterval:
                     syncRequest.value = 1
 
                     
@@ -81,8 +90,8 @@ class MyDelegate(btle.DefaultDelegate):
             
 
     def handlesyncRequest(self):
-        print("Entering handlesyncRequest... " + self.address + " Missing " + str(syncInterval-self.sampleNumber))
-        while self.sampleNumber != syncInterval:
+        print("Entering handlesyncRequest... " + self.address + " Missing " + str(self.syncInterval-self.sampleNumber))
+        while self.sampleNumber != self.syncInterval:
             tempTuple = (seizure.value,)
             self.save_file.write(str(self.lastsavedData + tempTuple) + "\n")
             self.sampleNumber = self.sampleNumber + 1
@@ -137,7 +146,7 @@ def connectProcedure():
     startButton.config(state="normal")
     identifyDevicesButton.config(state="disabled")
     lock = Lock()
-    barrier = Barrier(4)
+    barrier = Barrier(1)
     # Create shared memory
     global processes
     print("Connecting the devices, syncing and starting...")
@@ -147,9 +156,10 @@ def connectProcedure():
     os.chdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     syncRequest = 0
     for idx, name in enumerate(macAdresses):
-        process = Process(target=run_process, args=(macAdresses[idx], idx, locations[idx], lock, barrier))
-        processes[idx] = process
-        process.start()
+        if not(macAdresses[idx]==''):
+            process = Process(target=run_process, args=(macAdresses[idx], idx, locations[idx], lock, barrier))
+            processes[idx] = process
+            process.start()
 def startProcedure():
     global startNotify
     startNotify.value=1
@@ -170,11 +180,12 @@ def disconnectProcedure():
     seizureButton.configure(bg="orange")
     seizure.value = 0
     os.chdir("..")
-    try:
-        for idx, name in enumerate(macAdresses):
+   
+    for idx, name in enumerate(macAdresses):
+        try:
             processes[idx].terminate()
-    except AttributeError:
-        pass
+        except AttributeError:
+            pass
     print("Devices disconnected")
 
 def closeProcedure():
@@ -197,7 +208,7 @@ def seizureSave():
         seizure.value = 0
         print("Seizure identification was removed from the timestamps...")
 
-def identifyDevices(entry1, entry2, entry3, entry4):
+def identifyDevices(entry1, entry2, entry3, entry4, entry5):
     connectButton.config(state="normal")
     disconnectButton.config(state="disabled")
     seizureButton.config(state="disabled")
@@ -206,6 +217,7 @@ def identifyDevices(entry1, entry2, entry3, entry4):
     macAdresses[1] = entry2
     macAdresses[2] = entry3
     macAdresses[3] = entry4
+    macAdresses[4] = entry5
     print("The devices' MAC adresses were changed and added")
     
 def changeDevice(event):
@@ -245,22 +257,22 @@ root.rowconfigure(0, weight=1)
 root.protocol('WM_DELETE_WINDOW', closeProcedure)
 
 # Combobox
-combo = ttk.Combobox(root, values = ["Device 1 - Right Arm", "Device 2 - Left Arm", "Device 3 - Right Leg", "Device 4 - Left Leg"])
+combo = ttk.Combobox(root, values = ["Device 1 - " + str(locations[0]), "Device 2 - " + str(locations[1]), "Device 3 - " + str(locations[2]), "Device 4 - " + str(locations[3]), "Device 5 - " + str(locations[4])])
 combo.grid(row=1, column=2, padx=10, pady=5)
 combo.current(0)
 combo.bind("<<ComboboxSelected>>", changeDevice)
 
 # Buttons
-identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=lambda: identifyDevices(entry_RA.get(), entry_LA.get(), entry_RL.get(), entry_LL.get()), padx=20, pady=20)
-identifyDevicesButton.grid(row=4, column=0, columnspan=2, padx=10, pady=50)
+identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=lambda: identifyDevices(entry_RA.get(), entry_LA.get(), entry_RL.get(), entry_LL.get(), entry_C.get()), padx=20, pady=20)
+identifyDevicesButton.grid(row=5, column=0, columnspan=2, padx=10, pady=30)
 connectButton = Button(mainFrame, text="CONNECT", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
-connectButton.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
+connectButton.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
 startButton = Button(mainFrame, text="SYNC AND START", bg="orange", fg="white", command=startProcedure, padx=20, pady=20, state="disable")
-startButton.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
+startButton.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
 disconnectButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20, state="disable")
-disconnectButton.grid(row=7, column=0, columnspan=2, padx=10, pady=5)
+disconnectButton.grid(row=8, column=0, columnspan=2, padx=10, pady=5)
 seizureButton = Button(mainFrame, text="IDENTIFY SEIZURE", bg="orange", fg="white", command=seizureSave, padx=20, pady=20, state="disable")
-seizureButton.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
+seizureButton.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
 
     
 #Entry
@@ -272,12 +284,15 @@ entry_RL = Entry(mainFrame, font=40)
 entry_RL.grid(row=2, column=1, padx=10, pady=1)
 entry_LL = Entry(mainFrame, font=40)
 entry_LL.grid(row=3, column=1, padx=10, pady=1)
+entry_C = Entry(mainFrame, font=40)
+entry_C.grid(row=4, column=1, padx=10, pady=1)
 
 #Labels for entries
-label_RA = Label(mainFrame, text="Device 1 - Right Arm").grid(row=0, column=0, padx=5)
-label_LA = Label(mainFrame, text="Device 2 - Left Arm").grid(row=1, column=0, padx=5)
-label_RL = Label(mainFrame, text="Device 3 - Right Leg").grid(row=2, column=0, padx=5)
-label_LL = Label(mainFrame, text="Device 4 - Left Leg").grid(row=3, column=0, padx=5)
+label_RA = Label(mainFrame, text="Device 1 - " + str(locations[0])).grid(row=0, column=0, padx=5)
+label_LA = Label(mainFrame, text="Device 2 - " + str(locations[1])).grid(row=1, column=0, padx=5)
+label_RL = Label(mainFrame, text="Device 3 - " + str(locations[2])).grid(row=2, column=0, padx=5)
+label_LL = Label(mainFrame, text="Device 4 - " + str(locations[3])).grid(row=3, column=0, padx=5)
+label_C = Label(mainFrame, text="Device 5 - " + str(locations[4])).grid(row=4, column=0, padx=5)
 
 # Plot Initialization
 # Parameters
