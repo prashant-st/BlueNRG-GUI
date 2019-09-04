@@ -26,6 +26,7 @@ data = Array('h', 15)
 seizure = Value('i', 0)
 startNotify = Value('i', 0)
 syncRequest = Value('i', 0)
+numberofdevices = 0
 
 
 root = Tk()
@@ -140,13 +141,15 @@ def run_process(address, index, location, lock, barrier):
 
 
 def connectProcedure():
+    global numberofdevices
     connectButton.config(state="disabled")
     disconnectButton.config(state="normal")
     seizureButton.config(state="disabled")
     startButton.config(state="normal")
     identifyDevicesButton.config(state="disabled")
     lock = Lock()
-    barrier = Barrier(1)
+    barrier = Barrier(numberofdevices)
+    print(numberofdevices)
     # Create shared memory
     global processes
     print("Connecting the devices, syncing and starting...")
@@ -209,6 +212,7 @@ def seizureSave():
         print("Seizure identification was removed from the timestamps...")
 
 def identifyDevices(entry1, entry2, entry3, entry4, entry5):
+    global numberofdevices
     connectButton.config(state="normal")
     disconnectButton.config(state="disabled")
     seizureButton.config(state="disabled")
@@ -218,6 +222,9 @@ def identifyDevices(entry1, entry2, entry3, entry4, entry5):
     macAdresses[2] = entry3
     macAdresses[3] = entry4
     macAdresses[4] = entry5
+    for idx, name in enumerate(macAdresses):
+        if not (macAdresses[idx]==''):
+            numberofdevices = numberofdevices +1
     print("The devices' MAC adresses were changed and added")
     
 def changeDevice(event):
