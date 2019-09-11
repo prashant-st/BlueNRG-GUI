@@ -2,7 +2,7 @@ from tkinter import *
 from tkinter import ttk
 import matplotlib
 matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import os
@@ -46,9 +46,9 @@ class MyDelegate(btle.DefaultDelegate):
         self.sampleNumber = 0
         self.lastsavedData = tuple()
         if self.location == "Center (ECG)":
-            self.syncInterval = 6250
+            self.syncInterval = 1250
         else:
-            self.syncInterval = 5000
+            self.syncInterval = 1000
         # Open file to save later on     
         self.save_file = open("Output - " + str(self.location) +".txt", "w")
 
@@ -58,9 +58,10 @@ class MyDelegate(btle.DefaultDelegate):
 
     def handleNotification(self, cHandle, data_BLE):
         global data
+        
         if syncRequest.value == 0:
             if self.location == "Center (ECG)":
-                data_unpacked=unpack('hhhHiiI', data_BLE)
+                data_unpacked=unpack('hhhhiiI', data_BLE)
             elif self.location == "Right Arm (PPG)":
                 data_unpacked=unpack('=hhhIIIH', data_BLE)
             else:
@@ -68,8 +69,14 @@ class MyDelegate(btle.DefaultDelegate):
             # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
             if not((self.sampleNumber < self.syncInterval/30) and (data_unpacked[6] > 2 * self.syncInterval)):
                 # Device identification and allocation in the shared array
-                for i in range(3):
-                    data[i + self.index*3] = data_unpacked[i]
+                # Depending on the device, different data will be displayed
+            
+                if self.location == "Center (ECG)" or self.location == "Right Arm (PPG)" :
+                    data[self.index*3] = data_unpacked[3]
+                    data[(self.index*3)+1] = data_unpacked[4]
+                else:
+                    for i in range(3):
+                        data[i + self.index*3] = data_unpacked[i]
                     
                 # Save latest sample for further processing
                 self.lastsavedData = data_unpacked
@@ -86,7 +93,6 @@ class MyDelegate(btle.DefaultDelegate):
                 if self.sampleNumber == self.syncInterval:
                     syncRequest.value = 1
 
-                    
                 #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
             
 
@@ -99,6 +105,8 @@ class MyDelegate(btle.DefaultDelegate):
         print(self.address + " is ready")
         #Reset counter
         self.sampleNumber = 0
+
+
 
 def run_process(address, index, location, lock, barrier):
     # Connections
@@ -149,7 +157,6 @@ def connectProcedure():
     identifyDevicesButton.config(state="disabled")
     lock = Lock()
     barrier = Barrier(numberofdevices)
-    print(numberofdevices)
     # Create shared memory
     global processes
     print("Connecting the devices, syncing and starting...")
@@ -271,13 +278,13 @@ combo.bind("<<ComboboxSelected>>", changeDevice)
 
 # Buttons
 identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=lambda: identifyDevices(entry_RA.get(), entry_LA.get(), entry_RL.get(), entry_LL.get(), entry_C.get()), padx=20, pady=20)
-identifyDevicesButton.grid(row=5, column=0, columnspan=2, padx=10, pady=30)
+identifyDevicesButton.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
 connectButton = Button(mainFrame, text="CONNECT", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
 connectButton.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
 startButton = Button(mainFrame, text="SYNC AND START", bg="orange", fg="white", command=startProcedure, padx=20, pady=20, state="disable")
 startButton.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
 disconnectButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20, state="disable")
-disconnectButton.grid(row=8, column=0, columnspan=2, padx=10, pady=5)
+disconnectButton.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
 seizureButton = Button(mainFrame, text="IDENTIFY SEIZURE", bg="orange", fg="white", command=seizureSave, padx=20, pady=20, state="disable")
 seizureButton.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
 
@@ -325,6 +332,13 @@ a.set_xlabel('Showing the last 300 samples')
 canvas = FigureCanvasTkAgg(f, master=root)
 canvas.draw()
 canvas.get_tk_widget().grid(row=0, column=2, sticky=(N, W, E, S))
+
+toolbarFrame = Frame(master=root)
+toolbarFrame.grid(row=2, column=2, sticky=(W,E))
+toolbar = NavigationToolbar2Tk(canvas, toolbarFrame)
+toolbar.update()
+
+
 
 # Set up plot to call animate() function periodically
 ani = animation.FuncAnimation(f, animate, fargs=(ys,), interval=50, blit=False)
