@@ -13,6 +13,7 @@ import sys
 import matplotlib.animation as animation
 import numpy as np
 import datetime as dt
+import time
 
 
 macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00', '00:00:00:00:00:00']
@@ -83,7 +84,10 @@ class MyDelegate(btle.DefaultDelegate):
 
                 # Save the data
                 tempTuple = (seizure.value,)
-                self.save_file.write(str(data_unpacked + tempTuple) + "\n")
+                if self.sampleNumber ==0:
+                    self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+                else:
+                    self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
                 self.save_file.flush()
 
                 # Increment sample counter
@@ -100,7 +104,7 @@ class MyDelegate(btle.DefaultDelegate):
         print("Entering handlesyncRequest... " + self.address + " Missing " + str(self.syncInterval-self.sampleNumber))
         while self.sampleNumber != self.syncInterval:
             tempTuple = (seizure.value,)
-            self.save_file.write(str(self.lastsavedData + tempTuple) + "\n")
+            self.save_file.write(str(self.lastsavedData + tempTuple) + "\t" + "This sample was copied" +  dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
             self.sampleNumber = self.sampleNumber + 1
         print(self.address + " is ready")
         #Reset counter
@@ -170,6 +174,7 @@ def connectProcedure():
             process = Process(target=run_process, args=(macAdresses[idx], idx, locations[idx], lock, barrier))
             processes[idx] = process
             process.start()
+            time.sleep(2)
 def startProcedure():
     global startNotify
     startNotify.value=1
