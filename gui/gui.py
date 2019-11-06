@@ -346,7 +346,7 @@ toolbar.update()
 
 
 # Set up plot to call animate() function periodically
-ani = animation.FuncAnimation(f, animate, fargs=(ys,), interval=50, blit=False)
+ani = animation.FuncAnimation(f, animate, fargs=(ys,), interval=20, blit=True)
 
 while True:
     root.update_idletasks()
