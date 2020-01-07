@@ -57,37 +57,35 @@ class MyDelegate(btle.DefaultDelegate):
     def __del__(self):
         self.save_file.close()
 
+    def handlesyncRequest(self):
+        print("Entering handlesyncRequest... " + self.address + " Missing " + str(self.syncInterval-self.sampleNumber))
+        while self.sampleNumber != self.syncInterval:
+            tempTuple = (seizure.value,)
+            self.save_file.write(str(self.lastsavedData + tempTuple) + "\t" + "This sample was copied" +  dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+            self.sampleNumber = self.sampleNumber + 1
+        self.save_file.flush()
+        print(self.address + " is ready")
+        #Reset counter
+        self.sampleNumber = 0
+
+class ACM(MyDelegate):
     def handleNotification(self, cHandle, data_BLE):
         global data
-        
         if syncRequest.value == 0:
-            if self.location == "Center (ECG)":
-                data_unpacked=unpack('hhhhiiI', data_BLE)
-            elif self.location == "Right Arm (PPG)":
-                data_unpacked=unpack('=hhhIIIH', data_BLE)
-            else:
-                data_unpacked=unpack('hhhhhhIH', data_BLE)
+            data_unpacked=unpack('hhhhhhIH', data_BLE)
             # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
             if not((self.sampleNumber < self.syncInterval/30) and (data_unpacked[6] > 2 * self.syncInterval)):
                 # Device identification and allocation in the shared array
                 # Depending on the device, different data will be displayed
-            
-                if self.location == "Center (ECG)" or self.location == "Right Arm (PPG)" :
-                    data[self.index*3] = data_unpacked[3]
-                    data[(self.index*3)+1] = data_unpacked[4]
-                else:
-                    for i in range(3):
-                        data[i + self.index*3] = data_unpacked[i]
+                for i in range(3):
+                    data[i + self.index*3] = data_unpacked[i]
                     
                 # Save latest sample for further processing
                 self.lastsavedData = data_unpacked
 
                 # Save the data
                 tempTuple = (seizure.value,)
-                if self.sampleNumber ==0:
-                    self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
-                else:
-                    self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+                self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
                 self.save_file.flush()
 
                 # Increment sample counter
@@ -98,25 +96,77 @@ class MyDelegate(btle.DefaultDelegate):
                     syncRequest.value = 1
 
                 #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
-            
+				
+class ECG(MyDelegate):
+    def handleNotification(self, cHandle, data_BLE):
+        global data
+        
+        if syncRequest.value == 0:
+            data_unpacked=unpack('hhhhiiHH', data_BLE)
+            # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
+            if not((self.sampleNumber < self.syncInterval/30) and (data_unpacked[6] > 2 * self.syncInterval)):
+                # Device identification and allocation in the shared array
+                # Depending on the device, different data will be displayed
+                data[self.index*3] = data_unpacked[3]
+                data[(self.index*3)+1] = data_unpacked[4]
 
-    def handlesyncRequest(self):
-        print("Entering handlesyncRequest... " + self.address + " Missing " + str(self.syncInterval-self.sampleNumber))
-        while self.sampleNumber != self.syncInterval:
-            tempTuple = (seizure.value,)
-            self.save_file.write(str(self.lastsavedData + tempTuple) + "\t" + "This sample was copied" +  dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
-            self.sampleNumber = self.sampleNumber + 1
-        print(self.address + " is ready")
-        #Reset counter
-        self.sampleNumber = 0
+                # Save latest sample for further processing
+                self.lastsavedData = data_unpacked
 
+                # Save the data
+                tempTuple = (seizure.value,)
+                self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+                self.save_file.flush()
 
+                # Increment sample counter
+                self.sampleNumber = self.sampleNumber + 1
+
+                # Raise flag if one of the peripherals reaches syncInterval first
+                if self.sampleNumber == self.syncInterval:
+                    syncRequest.value = 1
+
+                #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
+				
+class PPG(MyDelegate):
+    def handleNotification(self, cHandle, data_BLE):
+        global data
+        
+        if syncRequest.value == 0:
+            data_unpacked=unpack('=hhhIIIH', data_BLE)
+            # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
+            if not((self.sampleNumber < self.syncInterval/30) and (data_unpacked[5] > 2 * self.syncInterval)):
+                # Device identification and allocation in the shared array
+                # Depending on the device, different data will be displayed
+                data[self.index*3] = data_unpacked[3]
+                data[(self.index*3)+1] = data_unpacked[4]
+
+                # Save latest sample for further processing
+                self.lastsavedData = data_unpacked
+
+                # Save the data
+                tempTuple = (seizure.value,)
+                self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+                self.save_file.flush()
+
+                # Increment sample counter
+                self.sampleNumber = self.sampleNumber + 1
+
+                # Raise flag if one of the peripherals reaches syncInterval first
+                if self.sampleNumber == self.syncInterval:
+                    syncRequest.value = 1
+
+                #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 
 def run_process(address, index, location, lock, barrier):
     # Connections
     print("Connecting to BlueNRG2...")
     BlueNRG = btle.Peripheral(address, btle.ADDR_TYPE_RANDOM)
-    peripheral = MyDelegate(address, index, location)
+    if location == "Right Arm (PPG)":
+        peripheral = PPG(address, index, location)
+    elif location == "Center (ECG)":
+        peripheral = ECG(address, index, location)
+    else:
+        peripheral = ACM(address, index, location)
     BlueNRG.setDelegate(peripheral)
     print("BlueNRG2 Services...")
     for svc in BlueNRG.services:
@@ -163,7 +213,7 @@ def connectProcedure():
     barrier = Barrier(numberofdevices)
     # Create shared memory
     global processes
-    print("Connecting the devices, syncing and starting...")
+    print("Connecting the devices...")
     # Create dir to save data
     cwd = os.getcwd()
     os.mkdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
@@ -192,6 +242,7 @@ def disconnectProcedure():
     disconnectButton.config(state="disabled")
     seizureButton.config(state="disabled")
     identifyDevicesButton.config(state="normal")
+    startButton.config(state="disabled")
     seizureButton.configure(bg="orange")
     seizure.value = 0
     os.chdir("..")
