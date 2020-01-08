@@ -24,6 +24,8 @@ start_UUID = '2c41cc24-cf13-11e1-4fdf-0002a5d5c51b'
 deviceidx = 0
 processes = [Process() for count in macAdresses]
 data = Array('h', 15)
+unsent = Array('H', 5)
+step = Value('H', 0)
 seizure = Value('i', 0)
 startNotify = Value('i', 0)
 syncRequest = Value('i', 0)
@@ -61,7 +63,7 @@ class MyDelegate(btle.DefaultDelegate):
         print("Entering handlesyncRequest... " + self.address + " Missing " + str(self.syncInterval-self.sampleNumber))
         while self.sampleNumber != self.syncInterval:
             tempTuple = (seizure.value,)
-            self.save_file.write(str(self.lastsavedData + tempTuple) + "\t" + "This sample was copied" +  dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+            self.save_file.write(str(self.lastsavedData + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\t" + "This sample was copied" + "\n")
             self.sampleNumber = self.sampleNumber + 1
         self.save_file.flush()
         print(self.address + " is ready")
@@ -83,6 +85,9 @@ class ACM(MyDelegate):
                 # Save latest sample for further processing
                 self.lastsavedData = data_unpacked
 
+                # Get the number of unsent samples on the peripheral side
+                unsent[self.index] = data_unpacked[7]
+
                 # Save the data
                 tempTuple = (seizure.value,)
                 self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
@@ -91,9 +96,12 @@ class ACM(MyDelegate):
                 # Increment sample counter
                 self.sampleNumber = self.sampleNumber + 1
 
-                # Raise flag if one of the peripherals reaches syncInterval first
-                if self.sampleNumber == self.syncInterval:
-                    syncRequest.value = 1
+                # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
+                if (self.sampleNumber == self.syncInterval + step.value * 100):
+                    if (unsent[0] < 3 and unsent[1] < 3 and unsent[2] < 3 and unsent[3] < 3 and unsent[4] < 3):
+                        syncRequest.value = 1
+                    else:
+                        step.value = step.value + 1
 
                 #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 				
@@ -113,6 +121,9 @@ class ECG(MyDelegate):
                 # Save latest sample for further processing
                 self.lastsavedData = data_unpacked
 
+                # Get the number of unsent samples on the peripheral side
+                unsent[self.index] = data_unpacked[7]
+
                 # Save the data
                 tempTuple = (seizure.value,)
                 self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
@@ -121,9 +132,12 @@ class ECG(MyDelegate):
                 # Increment sample counter
                 self.sampleNumber = self.sampleNumber + 1
 
-                # Raise flag if one of the peripherals reaches syncInterval first
-                if self.sampleNumber == self.syncInterval:
-                    syncRequest.value = 1
+                # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
+                if (self.sampleNumber == self.syncInterval + step.value * 125):
+                    if (unsent[0] < 3 and unsent[1] < 3 and unsent[2] < 3 and unsent[3] < 3 and unsent[4] < 3):
+                        syncRequest.value = 1
+                    else:
+                        step.value = step.value + 1
 
                 #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 				
@@ -143,6 +157,9 @@ class PPG(MyDelegate):
                 # Save latest sample for further processing
                 self.lastsavedData = data_unpacked
 
+                # Get the number of unsent samples on the peripheral side
+                unsent[self.index] = data_unpacked[6]
+
                 # Save the data
                 tempTuple = (seizure.value,)
                 self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
@@ -151,9 +168,12 @@ class PPG(MyDelegate):
                 # Increment sample counter
                 self.sampleNumber = self.sampleNumber + 1
 
-                # Raise flag if one of the peripherals reaches syncInterval first
-                if self.sampleNumber == self.syncInterval:
-                    syncRequest.value = 1
+                # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
+                if (self.sampleNumber == self.syncInterval + step.value * 100):
+                    if (unsent[0] < 3 and unsent[1] < 3 and unsent[2] < 3 and unsent[3] < 3 and unsent[4] < 3):
+                        syncRequest.value = 1
+                    else:
+                        step.value = step.value + 1
 
                 #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 
