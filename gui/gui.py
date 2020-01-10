@@ -14,6 +14,7 @@ import matplotlib.animation as animation
 import numpy as np
 import datetime as dt
 import time
+import random
 
 
 macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00', '00:00:00:00:00:00']
@@ -29,6 +30,7 @@ step = Value('H', 0)
 seizure = Value('i', 0)
 startNotify = Value('i', 0)
 syncRequest = Value('i', 0)
+disconnect_error = Value('i', 0)
 numberofdevices = 0
 
 
@@ -53,7 +55,7 @@ class MyDelegate(btle.DefaultDelegate):
         else:
             self.syncInterval = 1000
         # Open file to save later on     
-        self.save_file = open("Output - " + str(self.location) +".txt", "w")
+        self.save_file = open("Output - " + str(self.location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
 
 
     def __del__(self):
@@ -151,7 +153,7 @@ class PPG(MyDelegate):
         self.lastsavedData = tuple()
         self.syncInterval = 1000
         # Open file to save later on     
-        self.save_file = open("Output - " + str(self.location) +".txt", "w")
+        self.save_file = open("Output - " + str(self.location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
         # Create debug file
         self.debug_file = open("debug.txt", "w")
 
@@ -197,48 +199,72 @@ class PPG(MyDelegate):
                 #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 
 def run_process(address, index, location, lock, barrier):
-    # Connections
-    print("Connecting to BlueNRG2...")
-    BlueNRG = btle.Peripheral(address, btle.ADDR_TYPE_RANDOM)
-    if location == "Right Arm (PPG)":
-        peripheral = PPG(address, index, location)
-    elif location == "Center (ECG)":
-        peripheral = ECG(address, index, location)
-    else:
-        peripheral = ACM(address, index, location)
-    BlueNRG.setDelegate(peripheral)
-    print("BlueNRG2 Services...")
-    for svc in BlueNRG.services:
-        print(str(svc))
-
-    # Service retrieval
-    BlueNRG_service = BlueNRG.getServiceByUUID(sensor_serive_UUID)
-
-    # Char
-    print("BlueNRG2 Characteristics...")
-    BlueNRG_1_acc_char = BlueNRG_service.getCharacteristics(acc_UUID)[0]
-    BlueNRG_1_start_char = BlueNRG_service.getCharacteristics(start_UUID)[0]
-
-    # Waiting to start
-    while startNotify.value!=1:
-        continue
-        
-    # Setting the notifications on
-    BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
-
     while True:
-        if syncRequest.value == 0:
-            BlueNRG.waitForNotifications(1)
+        disconnect_error.value = 0
+        time.sleep(index*2)
+        # Connections
+        print("Connecting to BlueNRG2-" + str(index + 1) + " ...")
+        connected = False
+        while not connected:
+            try:
+                BlueNRG = btle.Peripheral(address, btle.ADDR_TYPE_RANDOM)
+                connected = True
+            except:
+                print("Connection was not successfull for BlueNRG2-" + str(index + 1)+ " retrying...")
+        if location == "Right Arm (PPG)":
+            peripheral = PPG(address, index, location)
+        elif location == "Center (ECG)":
+            peripheral = ECG(address, index, location)
         else:
-            peripheral.handlesyncRequest()
-            # Wait until all process are ready to reset
-            print(peripheral.address + " is waiting for sync")
-            barrier.wait()
-            BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, b'\x01')
-            print("Sync executed for " + peripheral.address)
-            lock.acquire()
-            syncRequest.value = 0
-            lock.release()
+            peripheral = ACM(address, index, location)
+        BlueNRG.setDelegate(peripheral)
+        # print("BlueNRG2 Services...")
+        for svc in BlueNRG.services:
+            print(str(svc))
+
+        # Service retrieval
+        BlueNRG_service = BlueNRG.getServiceByUUID(sensor_serive_UUID)
+
+        # Char
+        # print("BlueNRG2 Characteristics...")
+        BlueNRG_1_acc_char = BlueNRG_service.getCharacteristics(acc_UUID)[0]
+        BlueNRG_1_start_char = BlueNRG_service.getCharacteristics(start_UUID)[0]
+
+        print("Connection successfull for BlueNRG2-" + str(index + 1) + " ...")
+        
+        # Waiting to start
+        while startNotify.value!=1:
+            continue
+
+        barrier.wait()
+            
+        # Setting the notifications on
+        BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
+
+        while disconnect_error.value == 0:
+            if syncRequest.value == 0:
+                try:
+                    BlueNRG.waitForNotifications(1)
+                except:
+                    disconnect_error.value = 1
+                    print("One of the peripheral disconnected, connecting and then restarting...")
+            else:
+                peripheral.handlesyncRequest()
+                # Wait until all process are ready to reset
+                print(peripheral.address + " is waiting for sync")
+                barrier.wait()
+                BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, b'\x01')
+                print("Sync executed for " + peripheral.address)
+                lock.acquire()
+                syncRequest.value = 0
+                lock.release()
+        try:
+            BlueNRG.disconnect()
+        except:
+            pass
+        del BlueNRG
+        del peripheral
+        barrier.wait()
 
 
 def connectProcedure():
@@ -263,7 +289,7 @@ def connectProcedure():
             process = Process(target=run_process, args=(macAdresses[idx], idx, locations[idx], lock, barrier))
             processes[idx] = process
             process.start()
-            time.sleep(2)
+
 def startProcedure():
     global startNotify
     startNotify.value=1
