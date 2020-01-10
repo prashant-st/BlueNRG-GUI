@@ -60,8 +60,8 @@ class MyDelegate(btle.DefaultDelegate):
         self.save_file.close()
 
     def handlesyncRequest(self):
-        print("Entering handlesyncRequest... " + self.address + " Missing " + str(self.syncInterval-self.sampleNumber))
-        while self.sampleNumber != self.syncInterval:
+        print("Entering handlesyncRequest... " + self.address + " Missing " + str((self.syncInterval + (self.syncInterval/10) * step.value - self.sampleNumber)* 100 /(self.syncInterval + (self.syncInterval/10) * step.value)) + " %")
+        while self.sampleNumber != (self.syncInterval + (self.syncInterval/10) * step.value) :
             tempTuple = (seizure.value,)
             self.save_file.write(str(self.lastsavedData + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\t" + "This sample was copied" + "\n")
             self.sampleNumber = self.sampleNumber + 1
@@ -142,6 +142,21 @@ class ECG(MyDelegate):
                 #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 				
 class PPG(MyDelegate):
+    def __init__(self, _address, _index, _location):
+        btle.DefaultDelegate.__init__(self)
+        self.address = _address
+        self.index = _index
+        self.location = _location
+        self.sampleNumber = 0
+        self.lastsavedData = tuple()
+        self.syncInterval = 1000
+        # Open file to save later on     
+        self.save_file = open("Output - " + str(self.location) +".txt", "w")
+        # Create debug file
+        self.debug_file = open("debug.txt", "w")
+
+
+    
     def handleNotification(self, cHandle, data_BLE):
         global data
         
@@ -159,6 +174,10 @@ class PPG(MyDelegate):
 
                 # Get the number of unsent samples on the peripheral side
                 unsent[self.index] = data_unpacked[6]
+                
+                # Save debug data
+                self.debug_file.write(str((unsent[0], unsent[1], unsent[2], unsent[3], unsent[4])) + "\n")
+                self.debug_file.flush()
 
                 # Save the data
                 tempTuple = (seizure.value,)
@@ -209,7 +228,7 @@ def run_process(address, index, location, lock, barrier):
 
     while True:
         if syncRequest.value == 0:
-            BlueNRG.waitForNotifications(1.0)
+            BlueNRG.waitForNotifications(1)
         else:
             peripheral.handlesyncRequest()
             # Wait until all process are ready to reset
@@ -415,12 +434,13 @@ toolbar = NavigationToolbar2Tk(canvas, toolbarFrame)
 toolbar.update()
 
 
-
 # Set up plot to call animate() function periodically
 ani = animation.FuncAnimation(f, animate, fargs=(ys,), interval=20, blit=True)
 
 while True:
     root.update_idletasks()
     root.update()
+
+
 
 
