@@ -62,7 +62,7 @@ class MyDelegate(btle.DefaultDelegate):
         self.save_file.close()
 
     def handlesyncRequest(self):
-        print("Entering handlesyncRequest... " + self.address + " Missing " + str((self.syncInterval + (self.syncInterval/10) * step.value - self.sampleNumber)* 100 /(self.syncInterval + (self.syncInterval/10) * step.value)) + " %")
+        print("Entering handlesyncRequest... " + self.address + " Missing " + str((self.syncInterval + (self.syncInterval/10) * step.value - self.sampleNumber)* 100 /(self.syncInterval + (self.syncInterval/10) * step.value)) + " % of " + str(self.syncInterval + step.value*(self.syncInterval/10)) + " samples")
         while self.sampleNumber != (self.syncInterval + (self.syncInterval/10) * step.value) :
             tempTuple = (seizure.value,)
             self.save_file.write(str(self.lastsavedData + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\t" + "This sample was copied" + "\n")
@@ -89,7 +89,9 @@ class ACM(MyDelegate):
 
                 # Get the number of unsent samples on the peripheral side
                 unsent[self.index] = data_unpacked[7]
-
+                if unsent[self.index] > 150:
+                    disconnect_error.value = 1
+                    
                 # Save the data
                 tempTuple = (seizure.value,)
                 self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
@@ -125,6 +127,8 @@ class ECG(MyDelegate):
 
                 # Get the number of unsent samples on the peripheral side
                 unsent[self.index] = data_unpacked[7]
+                if unsent[self.index] > 150:
+                    disconnect_error.value = 1
 
                 # Save the data
                 tempTuple = (seizure.value,)
@@ -155,7 +159,7 @@ class PPG(MyDelegate):
         # Open file to save later on     
         self.save_file = open("Output - " + str(self.location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
         # Create debug file
-        self.debug_file = open("debug.txt", "w")
+        self.debug_file = open("debug" + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
 
 
     
@@ -176,6 +180,8 @@ class PPG(MyDelegate):
 
                 # Get the number of unsent samples on the peripheral side
                 unsent[self.index] = data_unpacked[6]
+                if unsent[self.index] > 150:
+                    disconnect_error.value = 1
                 
                 # Save debug data
                 self.debug_file.write(str((unsent[0], unsent[1], unsent[2], unsent[3], unsent[4])) + "\n")
@@ -201,7 +207,9 @@ class PPG(MyDelegate):
 def run_process(address, index, location, lock, barrier):
     while True:
         disconnect_error.value = 0
+        time.sleep(10)
         time.sleep(index*2)
+        step.value = 0
         # Connections
         print("Connecting to BlueNRG2-" + str(index + 1) + " ...")
         connected = False
@@ -259,6 +267,7 @@ def run_process(address, index, location, lock, barrier):
                 syncRequest.value = 0
                 lock.release()
         try:
+            BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x00\x00')
             BlueNRG.disconnect()
         except:
             pass
