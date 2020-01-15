@@ -261,6 +261,7 @@ def run_process(address, index, location, lock, barrier):
                 # Wait until all process are ready to reset
                 print(peripheral.address + " is waiting for sync")
                 barrier.wait()
+                step.value = 0
                 BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, b'\x01')
                 print("Sync executed for " + peripheral.address)
                 lock.acquire()
