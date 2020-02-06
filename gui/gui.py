@@ -89,7 +89,8 @@ class ACM(MyDelegate):
 
                 # Get the number of unsent samples on the peripheral side
                 unsent[self.index] = data_unpacked[7]
-                if unsent[self.index] > 150:
+                # print(str(data_unpacked[7]))
+                if unsent[self.index] > 230:
                     disconnect_error.value = 1
                     
                 # Save the data
@@ -102,7 +103,7 @@ class ACM(MyDelegate):
 
                 # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
                 if (self.sampleNumber == self.syncInterval + step.value * 100):
-                    if (unsent[0] < 3 and unsent[1] < 3 and unsent[2] < 3 and unsent[3] < 3 and unsent[4] < 3):
+                    if (unsent[0] < 6 and unsent[1] < 6 and unsent[2] < 6 and unsent[3] < 6 and unsent[4] < 6):
                         syncRequest.value = 1
                     else:
                         step.value = step.value + 1
@@ -127,7 +128,7 @@ class ECG(MyDelegate):
 
                 # Get the number of unsent samples on the peripheral side
                 unsent[self.index] = data_unpacked[7]
-                if unsent[self.index] > 150:
+                if unsent[self.index] > 230:
                     disconnect_error.value = 1
 
                 # Save the data
@@ -140,7 +141,7 @@ class ECG(MyDelegate):
 
                 # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
                 if (self.sampleNumber == self.syncInterval + step.value * 125):
-                    if (unsent[0] < 3 and unsent[1] < 3 and unsent[2] < 3 and unsent[3] < 3 and unsent[4] < 3):
+                    if (unsent[0] < 6 and unsent[1] < 6 and unsent[2] < 6 and unsent[3] < 6 and unsent[4] < 6):
                         syncRequest.value = 1
                     else:
                         step.value = step.value + 1
@@ -180,7 +181,7 @@ class PPG(MyDelegate):
 
                 # Get the number of unsent samples on the peripheral side
                 unsent[self.index] = data_unpacked[6]
-                if unsent[self.index] > 150:
+                if unsent[self.index] > 230:
                     disconnect_error.value = 1
                 
                 # Save debug data
@@ -197,7 +198,7 @@ class PPG(MyDelegate):
 
                 # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
                 if (self.sampleNumber == self.syncInterval + step.value * 100):
-                    if (unsent[0] < 3 and unsent[1] < 3 and unsent[2] < 3 and unsent[3] < 3 and unsent[4] < 3):
+                    if (unsent[0] < 6 and unsent[1] < 6 and unsent[2] < 6 and unsent[3] < 6 and unsent[4] < 6):
                         syncRequest.value = 1
                     else:
                         step.value = step.value + 1
@@ -207,8 +208,7 @@ class PPG(MyDelegate):
 def run_process(address, index, location, lock, barrier):
     while True:
         disconnect_error.value = 0
-        time.sleep(10)
-        time.sleep(index*2)
+        time.sleep(10 + index*2.02 + random.random())
         step.value = 0
         # Connections
         print("Connecting to BlueNRG2-" + str(index + 1) + " ...")
@@ -244,6 +244,7 @@ def run_process(address, index, location, lock, barrier):
         while startNotify.value!=1:
             continue
 
+        time.sleep(5)
         barrier.wait()
             
         # Setting the notifications on
@@ -252,7 +253,7 @@ def run_process(address, index, location, lock, barrier):
         while disconnect_error.value == 0:
             if syncRequest.value == 0:
                 try:
-                    BlueNRG.waitForNotifications(1)
+                    BlueNRG.waitForNotifications(5.0)
                 except:
                     disconnect_error.value = 1
                     print("One of the peripheral disconnected, connecting and then restarting...")
