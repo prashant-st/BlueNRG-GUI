@@ -18,7 +18,7 @@ import random
 
 
 macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00', '00:00:00:00:00:00']
-locations = ["Right Arm (PPG)","Left Arm", "Right Leg", "Left Leg", "Center (ECG)"]
+locations = ["Left Arm (PPG)","Right Arm", "Right Leg", "Left Leg", "Center (ECG)"]
 sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
 acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
 start_UUID = '2c41cc24-cf13-11e1-4fdf-0002a5d5c51b'
@@ -50,10 +50,6 @@ class MyDelegate(btle.DefaultDelegate):
         self.location = _location
         self.sampleNumber = 0
         self.lastsavedData = tuple()
-        if self.location == "Center (ECG)":
-            self.syncInterval = 1250
-        else:
-            self.syncInterval = 1000
         # Open file to save later on     
         self.save_file = open("Output - " + str(self.location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
 
@@ -73,6 +69,10 @@ class MyDelegate(btle.DefaultDelegate):
         self.sampleNumber = 0
 
 class ACM(MyDelegate):
+    def __init__(self, _address, _index, _location):
+        MyDelegate.__init__(self, _address, _index, _location)
+        self.syncInterval = 500
+        
     def handleNotification(self, cHandle, data_BLE):
         global data
         if syncRequest.value == 0:
@@ -102,7 +102,7 @@ class ACM(MyDelegate):
                 self.sampleNumber = self.sampleNumber + 1
 
                 # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
-                if (self.sampleNumber == self.syncInterval + step.value * 100):
+                if (self.sampleNumber == self.syncInterval + step.value * 50):
                     if (unsent[0] < 6 and unsent[1] < 6 and unsent[2] < 6 and unsent[3] < 6 and unsent[4] < 6):
                         syncRequest.value = 1
                     else:
@@ -111,6 +111,10 @@ class ACM(MyDelegate):
                 #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 				
 class ECG(MyDelegate):
+    def __init__(self, _address, _index, _location):
+        MyDelegate.__init__(self, _address, _index, _location)
+        self.syncInterval = 1250
+        
     def handleNotification(self, cHandle, data_BLE):
         global data
         
@@ -128,6 +132,7 @@ class ECG(MyDelegate):
 
                 # Get the number of unsent samples on the peripheral side
                 unsent[self.index] = data_unpacked[7]
+                # print(str(data_unpacked[7]))
                 if unsent[self.index] > 230:
                     disconnect_error.value = 1
 
@@ -150,19 +155,10 @@ class ECG(MyDelegate):
 				
 class PPG(MyDelegate):
     def __init__(self, _address, _index, _location):
-        btle.DefaultDelegate.__init__(self)
-        self.address = _address
-        self.index = _index
-        self.location = _location
-        self.sampleNumber = 0
-        self.lastsavedData = tuple()
-        self.syncInterval = 1000
-        # Open file to save later on     
-        self.save_file = open("Output - " + str(self.location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
+        MyDelegate.__init__(self, _address, _index, _location)
+        self.syncInterval = 500
         # Create debug file
         self.debug_file = open("debug" + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
-
-
     
     def handleNotification(self, cHandle, data_BLE):
         global data
@@ -197,7 +193,7 @@ class PPG(MyDelegate):
                 self.sampleNumber = self.sampleNumber + 1
 
                 # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
-                if (self.sampleNumber == self.syncInterval + step.value * 100):
+                if (self.sampleNumber == self.syncInterval + step.value * 50):
                     if (unsent[0] < 6 and unsent[1] < 6 and unsent[2] < 6 and unsent[3] < 6 and unsent[4] < 6):
                         syncRequest.value = 1
                     else:
@@ -219,36 +215,42 @@ def run_process(address, index, location, lock, barrier):
                 connected = True
             except:
                 print("Connection was not successfull for BlueNRG2-" + str(index + 1)+ " retrying...")
-        if location == "Right Arm (PPG)":
+        if location == "Left Arm (PPG)":
             peripheral = PPG(address, index, location)
         elif location == "Center (ECG)":
             peripheral = ECG(address, index, location)
         else:
             peripheral = ACM(address, index, location)
-        BlueNRG.setDelegate(peripheral)
-        # print("BlueNRG2 Services...")
-        for svc in BlueNRG.services:
-            print(str(svc))
+        try:
+            BlueNRG.setDelegate(peripheral)
+            # print("BlueNRG2 Services...")
+            for svc in BlueNRG.services:
+                print(str(svc))
 
-        # Service retrieval
-        BlueNRG_service = BlueNRG.getServiceByUUID(sensor_serive_UUID)
-
-        # Char
-        # print("BlueNRG2 Characteristics...")
-        BlueNRG_1_acc_char = BlueNRG_service.getCharacteristics(acc_UUID)[0]
-        BlueNRG_1_start_char = BlueNRG_service.getCharacteristics(start_UUID)[0]
-
-        print("Connection successfull for BlueNRG2-" + str(index + 1) + " ...")
-        
-        # Waiting to start
-        while startNotify.value!=1:
-            continue
-
-        time.sleep(5)
-        barrier.wait()
+            # Service retrieval
             
-        # Setting the notifications on
-        BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
+            BlueNRG_service = BlueNRG.getServiceByUUID(sensor_serive_UUID)
+
+            # Char
+            # print("BlueNRG2 Characteristics...")
+            BlueNRG_1_acc_char = BlueNRG_service.getCharacteristics(acc_UUID)[0]
+            BlueNRG_1_start_char = BlueNRG_service.getCharacteristics(start_UUID)[0]
+
+            print("Connection successfull for BlueNRG2-" + str(index + 1) + " ...")
+            
+            # Waiting to start
+            while startNotify.value!=1:
+                continue
+            
+            if disconnect_error.value == 0:
+                time.sleep(5)
+                barrier.wait()
+                
+            # Setting the notifications on
+            BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
+        except:
+            print("An error occured while retrieving the services. Restarting...")
+            disconnect_error.value = 1
 
         while disconnect_error.value == 0:
             if syncRequest.value == 0:
@@ -263,13 +265,16 @@ def run_process(address, index, location, lock, barrier):
                 print(peripheral.address + " is waiting for sync")
                 barrier.wait()
                 step.value = 0
-                BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, b'\x01')
-                print("Sync executed for " + peripheral.address)
-                lock.acquire()
-                syncRequest.value = 0
-                lock.release()
+                try:
+                    BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, b'\x01')
+                    print("Sync executed for " + peripheral.address)
+                    lock.acquire()
+                    syncRequest.value = 0
+                    lock.release()
+                except:
+                    print("A device disconnected during sync. Restarting...")
+                    disconnect_error.value = 1
         try:
-            BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x00\x00')
             BlueNRG.disconnect()
         except:
             pass
