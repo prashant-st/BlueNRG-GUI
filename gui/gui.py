@@ -116,10 +116,9 @@ class ECG(MyDelegate):
         self.syncInterval = 1250
         
     def handleNotification(self, cHandle, data_BLE):
-        global data
-        
+        global data        
         if syncRequest.value == 0:
-            data_unpacked=unpack('hhhhiiHH', data_BLE)
+            data_unpacked=unpack('hhh', data_BLE[0:6]) + unpack('<i', data_BLE[6:9] + b'\x00') + unpack('<i', data_BLE[9:12] + b'\x00') + unpack('<i', data_BLE[12:15] + b'\x00') + unpack('I', data_BLE[15:19]) +  (data_BLE[19],)
             # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
             if not((self.sampleNumber < self.syncInterval/30) and (data_unpacked[6] > 2 * self.syncInterval)):
                 # Device identification and allocation in the shared array
@@ -281,7 +280,6 @@ def run_process(address, index, location, lock, barrier):
         del BlueNRG
         del peripheral
         barrier.wait()
-
 
 def connectProcedure():
     global numberofdevices
