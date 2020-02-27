@@ -26,9 +26,10 @@ deviceidx = 0
 processes = [Process() for count in macAdresses]
 data = Array('h', 15)
 unsent = Array('H', 5)
-step = Value('H', 0)
+masterclock = Value('I', 0)
 seizure = Value('i', 0)
 startNotify = Value('i', 0)
+step = Value('H', 1)
 syncRequest = Value('i', 0)
 disconnect_error = Value('i', 0)
 numberofdevices = 0
@@ -50,6 +51,7 @@ class MyDelegate(btle.DefaultDelegate):
         self.location = _location
         self.sampleNumber = 0
         self.lastsavedData = tuple()
+        self.syncInterval = 6000 #10min
         # Open file to save later on     
         self.save_file = open("Output - " + str(self.location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
 
@@ -57,154 +59,129 @@ class MyDelegate(btle.DefaultDelegate):
     def __del__(self):
         self.save_file.close()
 
-    def handlesyncRequest(self):
-        print("Entering handlesyncRequest... " + self.address + " Missing " + str((self.syncInterval + (self.syncInterval/10) * step.value - self.sampleNumber)* 100 /(self.syncInterval + (self.syncInterval/10) * step.value)) + " % of " + str(self.syncInterval + step.value*(self.syncInterval/10)) + " samples")
-        while self.sampleNumber != (self.syncInterval + (self.syncInterval/10) * step.value) :
-            tempTuple = (seizure.value,)
-            self.save_file.write(str(self.lastsavedData + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\t" + "This sample was copied" + "\n")
-            self.sampleNumber = self.sampleNumber + 1
-        self.save_file.flush()
-        print(self.address + " is ready")
-        #Reset counter
-        self.sampleNumber = 0
 
 class ACM(MyDelegate):
     def __init__(self, _address, _index, _location):
         MyDelegate.__init__(self, _address, _index, _location)
-        self.syncInterval = 500
         
     def handleNotification(self, cHandle, data_BLE):
         global data
-        if syncRequest.value == 0:
-            data_unpacked=unpack('hhhhhhIH', data_BLE)
-            # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
-            if not((self.sampleNumber < self.syncInterval/30) and (data_unpacked[6] > 2 * self.syncInterval)):
-                # Device identification and allocation in the shared array
-                # Depending on the device, different data will be displayed
-                for i in range(3):
-                    data[i + self.index*3] = data_unpacked[i]
+
+        data_unpacked=unpack('hhhhhhIH', data_BLE)
+        # Device identification and allocation in the shared array
+        # Depending on the device, different data will be displayed
+        for i in range(3):
+            data[i + self.index*3] = data_unpacked[i]
                     
-                # Save latest sample for further processing
-                self.lastsavedData = data_unpacked
+        # Save latest sample for further processing
+        self.lastsavedData = data_unpacked
 
-                # Get the number of unsent samples on the peripheral side
-                unsent[self.index] = data_unpacked[7]
-                # print(str(data_unpacked[7]))
-                if unsent[self.index] > 230:
-                    disconnect_error.value = 1
+        # Get the number of unsent samples on the peripheral side
+        unsent[self.index] = data_unpacked[7]
+            
+        # print(str(data_unpacked[7]))
+        if unsent[self.index] > 230:
+            disconnect_error.value = 1
                     
-                # Save the data
-                tempTuple = (seizure.value,)
-                self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
-                self.save_file.flush()
+        # Save the data
+        tempTuple = (seizure.value,)
+        self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+        self.save_file.flush()
 
-                # Increment sample counter
-                self.sampleNumber = self.sampleNumber + 1
+        # Raise flag if one of the peripherals reaches syncInterval first
+        if (data_unpacked[6] == self.syncInterval*step.value and data_unpacked[6] != 0):
+            syncRequest.value = 1
+            masterclock.value = data_unpacked[6]
+            step.value = step.value + 1
 
-                # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
-                if (self.sampleNumber == self.syncInterval + step.value * 50):
-                    if (unsent[0] < 6 and unsent[1] < 6 and unsent[2] < 6 and unsent[3] < 6 and unsent[4] < 6):
-                        syncRequest.value = 1
-                    else:
-                        step.value = step.value + 1
-
-                #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
+        #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 				
 class ECG(MyDelegate):
     def __init__(self, _address, _index, _location):
         MyDelegate.__init__(self, _address, _index, _location)
-        self.syncInterval = 1250
         
     def handleNotification(self, cHandle, data_BLE):
         global data        
-        if syncRequest.value == 0:
-            data_unpacked=unpack('hhh', data_BLE[0:6]) + unpack('<i', data_BLE[6:9] + b'\x00') + unpack('<i', data_BLE[9:12] + b'\x00') + unpack('<i', data_BLE[12:15] + b'\x00') + unpack('I', data_BLE[15:19]) +  (data_BLE[19],)
-            # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
-            if not((self.sampleNumber < self.syncInterval/30) and (data_unpacked[6] > 2 * self.syncInterval)):
-                # Device identification and allocation in the shared array
-                # Depending on the device, different data will be displayed
-                data[self.index*3] = data_unpacked[3]
-                data[(self.index*3)+1] = data_unpacked[4]
 
-                # Save latest sample for further processing
-                self.lastsavedData = data_unpacked
+        data_unpacked=unpack('hhh', data_BLE[0:6]) + unpack('<i', data_BLE[6:9] + b'\x00') + unpack('<i', data_BLE[9:12] + b'\x00') + unpack('<i', data_BLE[12:15] + b'\x00') + unpack('I', data_BLE[15:19]) +  (data_BLE[19],)
 
-                # Get the number of unsent samples on the peripheral side
-                unsent[self.index] = data_unpacked[7]
-                # print(str(data_unpacked[7]))
-                if unsent[self.index] > 230:
-                    disconnect_error.value = 1
+        # Device identification and allocation in the shared array
+        # Depending on the device, different data will be displayed
+        data[self.index*3] = data_unpacked[3]
+        data[(self.index*3)+1] = data_unpacked[4]
 
-                # Save the data
-                tempTuple = (seizure.value,)
-                self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
-                self.save_file.flush()
+        # Save latest sample for further processing
+        self.lastsavedData = data_unpacked
 
-                # Increment sample counter
-                self.sampleNumber = self.sampleNumber + 1
+        # Get the number of unsent samples on the peripheral side
+        unsent[self.index] = data_unpacked[7]
+        # print(str(data_unpacked[7]))
+        if unsent[self.index] > 230:
+                disconnect_error.value = 1
 
-                # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
-                if (self.sampleNumber == self.syncInterval + step.value * 125):
-                    if (unsent[0] < 6 and unsent[1] < 6 and unsent[2] < 6 and unsent[3] < 6 and unsent[4] < 6):
-                        syncRequest.value = 1
-                    else:
-                        step.value = step.value + 1
+        # Save the data
+        tempTuple = (seizure.value,)
+        self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+        self.save_file.flush()
 
-                #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
+        # Increment sample counter
+        self.sampleNumber = self.sampleNumber + 1
+
+        # Raise flag if one of the peripherals reaches syncInterval first
+        if (((data_unpacked[6] == self.syncInterval*step.value) or ((data_unpacked[6]-8) == self.syncInterval*step.value)) and data_unpacked[6] != 0 and data_unpacked[6] != 8):
+            syncRequest.value = 1
+            masterclock.value = data_unpacked[6]
+            step.value = step.value + 1
+                
+        #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 				
 class PPG(MyDelegate):
     def __init__(self, _address, _index, _location):
         MyDelegate.__init__(self, _address, _index, _location)
-        self.syncInterval = 500
         # Create debug file
         self.debug_file = open("debug" + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
     
     def handleNotification(self, cHandle, data_BLE):
         global data
         
-        if syncRequest.value == 0:
-            data_unpacked=unpack('=hhhIIIH', data_BLE)
-            # Verify that this is new data and not leftover values from the SPTBLE-1S FIFO
-            if not((self.sampleNumber < self.syncInterval/30) and (data_unpacked[5] > 2 * self.syncInterval)):
-                # Device identification and allocation in the shared array
-                # Depending on the device, different data will be displayed
-                data[self.index*3] = data_unpacked[3]
-                data[(self.index*3)+1] = data_unpacked[4]
+        data_unpacked=unpack('=hhhIIIH', data_BLE)
+        # Device identification and allocation in the shared array
+        # Depending on the device, different data will be displayed
+        data[self.index*3] = data_unpacked[3]
+        data[(self.index*3)+1] = data_unpacked[4]
 
-                # Save latest sample for further processing
-                self.lastsavedData = data_unpacked
+        # Save latest sample for further processing
+        self.lastsavedData = data_unpacked
 
-                # Get the number of unsent samples on the peripheral side
-                unsent[self.index] = data_unpacked[6]
-                if unsent[self.index] > 230:
-                    disconnect_error.value = 1
+        # Get the number of unsent samples on the peripheral side
+        unsent[self.index] = data_unpacked[6]
+        if unsent[self.index] > 230:
+            disconnect_error.value = 1
                 
-                # Save debug data
-                self.debug_file.write(str((unsent[0], unsent[1], unsent[2], unsent[3], unsent[4])) + "\n")
-                self.debug_file.flush()
+        # Save debug data
+        self.debug_file.write(str((unsent[0], unsent[1], unsent[2], unsent[3], unsent[4])) + "\n")
+        self.debug_file.flush()
 
-                # Save the data
-                tempTuple = (seizure.value,)
-                self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
-                self.save_file.flush()
+        # Save the data
+        tempTuple = (seizure.value,)
+        self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+        self.save_file.flush()
 
-                # Increment sample counter
-                self.sampleNumber = self.sampleNumber + 1
+        # Increment sample counter
+        self.sampleNumber = self.sampleNumber + 1
 
-                # Raise flag if one of the peripherals reaches syncInterval first and if unsent number is low
-                if (self.sampleNumber == self.syncInterval + step.value * 50):
-                    if (unsent[0] < 6 and unsent[1] < 6 and unsent[2] < 6 and unsent[3] < 6 and unsent[4] < 6):
-                        syncRequest.value = 1
-                    else:
-                        step.value = step.value + 1
+        # Raise flag if one of the peripherals reaches syncInterval first
+        if (data_unpacked[5] == self.syncInterval*step.value and data_unpacked[5] != 0):
+            syncRequest.value = 1
+            masterclock.value = data_unpacked[5]
+            step.value = step.value + 1
 
-                #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
+        #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 
 def run_process(address, index, location, lock, barrier):
     while True:
         disconnect_error.value = 0
         time.sleep(10 + index*2.02 + random.random())
-        step.value = 0
         # Connections
         print("Connecting to BlueNRG2-" + str(index + 1) + " ...")
         connected = False
@@ -259,13 +236,11 @@ def run_process(address, index, location, lock, barrier):
                     disconnect_error.value = 1
                     print("One of the peripheral disconnected, connecting and then restarting...")
             else:
-                peripheral.handlesyncRequest()
                 # Wait until all process are ready to reset
                 print(peripheral.address + " is waiting for sync")
                 barrier.wait()
-                step.value = 0
                 try:
-                    BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, b'\x01')
+                    BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, (masterclock.value + 200).to_bytes(4, byteorder='little'))
                     print("Sync executed for " + peripheral.address)
                     lock.acquire()
                     syncRequest.value = 0
