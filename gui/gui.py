@@ -29,10 +29,9 @@ unsent = Array('H', 5)
 masterclock = Value('I', 0)
 seizure = Value('i', 0)
 startNotify = Value('i', 0)
-step = Value('H', 1)
 syncRequest = Value('i', 0)
-disconnect_error = Value('i', 0)
 numberofdevices = 0
+connected = False
 
 
 root = Tk()
@@ -44,28 +43,27 @@ plt.style.use('ggplot')
 
 
 class MyDelegate(btle.DefaultDelegate):
-    def __init__(self, _address, _index, _location):
+    def __init__(self, _address, _index, _location, filename):
         btle.DefaultDelegate.__init__(self)
         self.address = _address
         self.index = _index
         self.location = _location
-        self.sampleNumber = 0
         self.lastsavedData = tuple()
-        self.syncInterval = 6000 #10min
-        # Open file to save later on     
-        self.save_file = open("Output - " + str(self.location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
-
+        self.watchdog = 1000 #number of times unsent>240 before disconnect
+        self.watchdogcounter = 0 #number of times unsent>240
+        self.save_file = open(filename, "a")
 
     def __del__(self):
         self.save_file.close()
 
 
 class ACM(MyDelegate):
-    def __init__(self, _address, _index, _location):
-        MyDelegate.__init__(self, _address, _index, _location)
+    def __init__(self, _address, _index, _location, _save_file):
+        MyDelegate.__init__(self, _address, _index, _location, _save_file)
         
     def handleNotification(self, cHandle, data_BLE):
         global data
+        global connected
 
         data_unpacked=unpack('hhhhhhIH', data_BLE)
         # Device identification and allocation in the shared array
@@ -78,30 +76,33 @@ class ACM(MyDelegate):
 
         # Get the number of unsent samples on the peripheral side
         unsent[self.index] = data_unpacked[7]
-            
-        # print(str(data_unpacked[7]))
-        if unsent[self.index] > 230:
-            disconnect_error.value = 1
+
+        # Update counter if connection is bad
+        if(unsent[self.index] > 240):
+            self.watchdogcounter = self.watchdogcounter + 1
+        else:
+            self.watchdogcounter = 0
+
+        # Update master clock
+        if(data_unpacked[6] > masterclock.value):
+            masterclock.value = data_unpacked[6]
+
+        # Disconnect if watchdog is reached
+        if(self.watchdogcounter == self.watchdog):
+            connected = False
                     
         # Save the data
         tempTuple = (seizure.value,)
         self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
         self.save_file.flush()
-
-        # Raise flag if one of the peripherals reaches syncInterval first
-        if (data_unpacked[6] == self.syncInterval*step.value and data_unpacked[6] != 0):
-            syncRequest.value = 1
-            masterclock.value = data_unpacked[6]
-            step.value = step.value + 1
-
-        #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 				
 class ECG(MyDelegate):
-    def __init__(self, _address, _index, _location):
-        MyDelegate.__init__(self, _address, _index, _location)
+    def __init__(self, _address, _index, _location, _save_file):
+        MyDelegate.__init__(self, _address, _index, _location, _save_file)
         
     def handleNotification(self, cHandle, data_BLE):
-        global data        
+        global data
+        global connected
 
         data_unpacked=unpack('hhh', data_BLE[0:6]) + unpack('<i', data_BLE[6:9] + b'\x00') + unpack('<i', data_BLE[9:12] + b'\x00') + unpack('<i', data_BLE[12:15] + b'\x00') + unpack('I', data_BLE[15:19]) +  (data_BLE[19],)
 
@@ -115,34 +116,37 @@ class ECG(MyDelegate):
 
         # Get the number of unsent samples on the peripheral side
         unsent[self.index] = data_unpacked[7]
-        # print(str(data_unpacked[7]))
-        if unsent[self.index] > 230:
-                disconnect_error.value = 1
+
+        # Update counter if connection is bad
+        if(unsent[self.index] > 240):
+            self.watchdogcounter = self.watchdogcounter + 1
+        else:
+            self.watchdogcounter = 0
+
+        # Update master clock
+        if(data_unpacked[6] > masterclock.value):
+            masterclock.value = data_unpacked[6]
+            
+        # Disconnect if watchdog is reached
+        if(self.watchdogcounter == self.watchdog):
+            connected = False
 
         # Save the data
         tempTuple = (seizure.value,)
         self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
         self.save_file.flush()
-
-        # Increment sample counter
-        self.sampleNumber = self.sampleNumber + 1
-
-        # Raise flag if one of the peripherals reaches syncInterval first
-        if (((data_unpacked[6] == self.syncInterval*step.value) or ((data_unpacked[6]-8) == self.syncInterval*step.value)) and data_unpacked[6] != 0 and data_unpacked[6] != 8):
-            syncRequest.value = 1
-            masterclock.value = data_unpacked[6]
-            step.value = step.value + 1
-                
-        #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
 				
 class PPG(MyDelegate):
-    def __init__(self, _address, _index, _location):
-        MyDelegate.__init__(self, _address, _index, _location)
-        # Create debug file
-        self.debug_file = open("debug" + " - " + dt.datetime.now().strftime('%c') + ".txt", "w")
+    def __init__(self, _address, _index, _location, _save_file, _debugfilename):
+        MyDelegate.__init__(self, _address, _index, _location, _save_file)
+        self.debug_file = open(_debugfilename, "a")
+
+    def __del__(self):
+        self.debug_file.close()
     
     def handleNotification(self, cHandle, data_BLE):
         global data
+        global connected
         
         data_unpacked=unpack('=hhhIIIH', data_BLE)
         # Device identification and allocation in the shared array
@@ -155,9 +159,21 @@ class PPG(MyDelegate):
 
         # Get the number of unsent samples on the peripheral side
         unsent[self.index] = data_unpacked[6]
-        if unsent[self.index] > 230:
-            disconnect_error.value = 1
-                
+
+        # Update counter if connection is bad
+        if(unsent[self.index] > 240):
+            self.watchdogcounter = self.watchdogcounter + 1
+        else:
+            self.watchdogcounter = 0
+
+        # Update master clock
+        if(data_unpacked[5] > masterclock.value):
+            masterclock.value = data_unpacked[5]
+
+        # Disconnect if watchdog is reached
+        if(self.watchdogcounter == self.watchdog):
+            connected = False
+        
         # Save debug data
         self.debug_file.write(str((unsent[0], unsent[1], unsent[2], unsent[3], unsent[4])) + "\n")
         self.debug_file.flush()
@@ -167,21 +183,13 @@ class PPG(MyDelegate):
         self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
         self.save_file.flush()
 
-        # Increment sample counter
-        self.sampleNumber = self.sampleNumber + 1
-
-        # Raise flag if one of the peripherals reaches syncInterval first
-        if (data_unpacked[5] == self.syncInterval*step.value and data_unpacked[5] != 0):
-            syncRequest.value = 1
-            masterclock.value = data_unpacked[5]
-            step.value = step.value + 1
-
-        #print("Processing " + str(self.sampleNumber) + " for " + str(self.address))
-
-def run_process(address, index, location, lock, barrier):
+def run_process(address, index, location, lock, barrier, debugfilename):
+    # Open file to save later on
+    filename = "Output - " + str(location) + " - " + dt.datetime.now().strftime('%c') + ".txt"
+    global connected
+    
     while True:
-        disconnect_error.value = 0
-        time.sleep(10 + index*2.02 + random.random())
+        time.sleep((index+1)*2.02 + random.random())
         # Connections
         print("Connecting to BlueNRG2-" + str(index + 1) + " ...")
         connected = False
@@ -192,11 +200,11 @@ def run_process(address, index, location, lock, barrier):
             except:
                 print("Connection was not successfull for BlueNRG2-" + str(index + 1)+ " retrying...")
         if location == "Left Arm (PPG)":
-            peripheral = PPG(address, index, location)
+            peripheral = PPG(address, index, location, filename, debugfilename)
         elif location == "Center (ECG)":
-            peripheral = ECG(address, index, location)
+            peripheral = ECG(address, index, location, filename)
         else:
-            peripheral = ACM(address, index, location)
+            peripheral = ACM(address, index, location, filename)
         try:
             BlueNRG.setDelegate(peripheral)
             # print("BlueNRG2 Services...")
@@ -217,44 +225,33 @@ def run_process(address, index, location, lock, barrier):
             # Waiting to start
             while startNotify.value!=1:
                 continue
+
+            # Wait for connection update
+            time.sleep(5)
+            # barrier.wait()
+
+            # Set timer to the right value
+            BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, (masterclock.value).to_bytes(4, byteorder='little'))
             
-            if disconnect_error.value == 0:
-                time.sleep(5)
-                barrier.wait()
-                
             # Setting the notifications on
             BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
+            
         except:
             print("An error occured while retrieving the services. Restarting...")
-            disconnect_error.value = 1
+            connected = False
 
-        while disconnect_error.value == 0:
-            if syncRequest.value == 0:
-                try:
-                    BlueNRG.waitForNotifications(5.0)
-                except:
-                    disconnect_error.value = 1
-                    print("One of the peripheral disconnected, connecting and then restarting...")
-            else:
-                # Wait until all process are ready to reset
-                print(peripheral.address + " is waiting for sync")
-                barrier.wait()
-                try:
-                    BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, (masterclock.value + 200).to_bytes(4, byteorder='little'))
-                    print("Sync executed for " + peripheral.address)
-                    lock.acquire()
-                    syncRequest.value = 0
-                    lock.release()
-                except:
-                    print("A device disconnected during sync. Restarting...")
-                    disconnect_error.value = 1
+        while connected:
+            try:
+                BlueNRG.waitForNotifications(1.0)
+            except:
+                connected = False
+        print("One of the peripheral disconnected, connecting and then restarting...")
         try:
             BlueNRG.disconnect()
         except:
             pass
         del BlueNRG
         del peripheral
-        barrier.wait()
 
 def connectProcedure():
     global numberofdevices
@@ -273,9 +270,11 @@ def connectProcedure():
     os.mkdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     os.chdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     syncRequest = 0
+    # Create debug file
+    debugfilename = "debug" + " - " + dt.datetime.now().strftime('%c') + ".txt"
     for idx, name in enumerate(macAdresses):
         if not(macAdresses[idx]==''):
-            process = Process(target=run_process, args=(macAdresses[idx], idx, locations[idx], lock, barrier))
+            process = Process(target=run_process, args=(macAdresses[idx], idx, locations[idx], lock, barrier, debugfilename))
             processes[idx] = process
             process.start()
 
@@ -292,6 +291,7 @@ def startProcedure():
 def disconnectProcedure():
     global startNotify
     startNotify.value=0
+    masterclock.value = 0
     connectButton.config(state="normal")
     disconnectButton.config(state="disabled")
     seizureButton.config(state="disabled")
