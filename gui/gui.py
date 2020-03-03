@@ -228,7 +228,6 @@ def run_process(address, index, location, lock, barrier, debugfilename):
 
             # Wait for connection update
             time.sleep(5)
-            # barrier.wait()
 
             # Set timer to the right value
             BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, (masterclock.value).to_bytes(4, byteorder='little'))
@@ -245,7 +244,7 @@ def run_process(address, index, location, lock, barrier, debugfilename):
                 BlueNRG.waitForNotifications(1.0)
             except:
                 connected = False
-        print("One of the peripheral disconnected, connecting and then restarting...")
+                print("One of the peripheral disconnected, connecting it and then restarting...")
         try:
             BlueNRG.disconnect()
         except:
