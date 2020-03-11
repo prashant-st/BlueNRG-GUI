@@ -247,10 +247,11 @@ def run_process(address, index, location, lock, barrier, debugfilename):
                 print("One of the peripheral disconnected, connecting it and then restarting...")
         try:
             BlueNRG.disconnect()
+            del BlueNRG
+            del peripheral
         except:
             pass
-        del BlueNRG
-        del peripheral
+
 
 def connectProcedure():
     global numberofdevices
