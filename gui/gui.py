@@ -230,7 +230,7 @@ def run_process(address, index, location, lock, barrier, debugfilename):
             time.sleep(5)
 
             # Set timer to the right value
-            BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, (masterclock.value).to_bytes(4, byteorder='little'))
+            BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, (masterclock.value+40).to_bytes(4, byteorder='little'))
             
             # Setting the notifications on
             BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
