@@ -15,23 +15,21 @@ import numpy as np
 import datetime as dt
 import time
 import random
+import signal, psutil
 
 
-macAdresses = ['00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00','00:00:00:00:00:00', '00:00:00:00:00:00']
+macAdresses = []
 locations = ["Left Arm (PPG)","Right Arm", "Right Leg", "Left Leg", "Center (ECG)"]
 sensor_serive_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
 acc_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
 start_UUID = '2c41cc24-cf13-11e1-4fdf-0002a5d5c51b'
 deviceidx = 0
-processes = [Process() for count in macAdresses]
 data = Array('h', 15)
 unsent = Array('H', 5)
 masterclock = Value('I', 0)
 seizure = Value('i', 0)
 startNotify = Value('i', 0)
-syncRequest = Value('i', 0)
-numberofdevices = 0
-connected = False
+
 
 
 root = Tk()
@@ -43,36 +41,31 @@ plt.style.use('ggplot')
 
 
 class MyDelegate(btle.DefaultDelegate):
-    def __init__(self, _address, _index, _location, filename):
+    def __init__(self, _address, _index, _location):
         btle.DefaultDelegate.__init__(self)
         self.address = _address
         self.index = _index
         self.location = _location
-        self.lastsavedData = tuple()
-        self.watchdog = 1000 #number of times unsent>240 before disconnect
+        self.watchdog = 500 #number of times unsent>240 before disconnect
         self.watchdogcounter = 0 #number of times unsent>240
-        self.save_file = open(filename, "a")
+        self.save_file = open("Output - " + str(_location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "a")
 
     def __del__(self):
         self.save_file.close()
 
 
 class ACM(MyDelegate):
-    def __init__(self, _address, _index, _location, _save_file):
-        MyDelegate.__init__(self, _address, _index, _location, _save_file)
+    def __init__(self, _address, _index, _location):
+        MyDelegate.__init__(self, _address, _index, _location)
         
     def handleNotification(self, cHandle, data_BLE):
         global data
-        global connected
 
         data_unpacked=unpack('hhhhhhIH', data_BLE)
         # Device identification and allocation in the shared array
         # Depending on the device, different data will be displayed
         for i in range(3):
             data[i + self.index*3] = data_unpacked[i]
-                    
-        # Save latest sample for further processing
-        self.lastsavedData = data_unpacked
 
         # Get the number of unsent samples on the peripheral side
         unsent[self.index] = data_unpacked[7]
@@ -89,7 +82,8 @@ class ACM(MyDelegate):
 
         # Disconnect if watchdog is reached
         if(self.watchdogcounter == self.watchdog):
-            connected = False
+            print("Reconnecting to BlueNRG2-" + str(self.index + 1) + " because of too many missing paquets")
+            raise WDRError
                     
         # Save the data
         tempTuple = (seizure.value,)
@@ -97,12 +91,11 @@ class ACM(MyDelegate):
         self.save_file.flush()
 				
 class ECG(MyDelegate):
-    def __init__(self, _address, _index, _location, _save_file):
-        MyDelegate.__init__(self, _address, _index, _location, _save_file)
+    def __init__(self, _address, _index, _location):
+        MyDelegate.__init__(self, _address, _index, _location)
         
     def handleNotification(self, cHandle, data_BLE):
         global data
-        global connected
 
         data_unpacked=unpack('hhh', data_BLE[0:6]) + unpack('<i', data_BLE[6:9] + b'\x00') + unpack('<i', data_BLE[9:12] + b'\x00') + unpack('<i', data_BLE[12:15] + b'\x00') + unpack('I', data_BLE[15:19]) +  (data_BLE[19],)
 
@@ -110,9 +103,6 @@ class ECG(MyDelegate):
         # Depending on the device, different data will be displayed
         data[self.index*3] = data_unpacked[3]
         data[(self.index*3)+1] = data_unpacked[4]
-
-        # Save latest sample for further processing
-        self.lastsavedData = data_unpacked
 
         # Get the number of unsent samples on the peripheral side
         unsent[self.index] = data_unpacked[7]
@@ -129,7 +119,8 @@ class ECG(MyDelegate):
             
         # Disconnect if watchdog is reached
         if(self.watchdogcounter == self.watchdog):
-            connected = False
+            print("Reconnecting to BlueNRG2-" + str(self.index + 1) + " because of too many missing paquets")
+            raise WDRError
 
         # Save the data
         tempTuple = (seizure.value,)
@@ -137,25 +128,17 @@ class ECG(MyDelegate):
         self.save_file.flush()
 				
 class PPG(MyDelegate):
-    def __init__(self, _address, _index, _location, _save_file, _debugfilename):
-        MyDelegate.__init__(self, _address, _index, _location, _save_file)
-        self.debug_file = open(_debugfilename, "a")
-
-    def __del__(self):
-        self.debug_file.close()
+    def __init__(self, _address, _index, _location):
+        MyDelegate.__init__(self, _address, _index, _location)
     
     def handleNotification(self, cHandle, data_BLE):
         global data
-        global connected
         
         data_unpacked=unpack('=hhhIIIH', data_BLE)
         # Device identification and allocation in the shared array
         # Depending on the device, different data will be displayed
         data[self.index*3] = data_unpacked[3]
         data[(self.index*3)+1] = data_unpacked[4]
-
-        # Save latest sample for further processing
-        self.lastsavedData = data_unpacked
 
         # Get the number of unsent samples on the peripheral side
         unsent[self.index] = data_unpacked[6]
@@ -172,47 +155,28 @@ class PPG(MyDelegate):
 
         # Disconnect if watchdog is reached
         if(self.watchdogcounter == self.watchdog):
-            connected = False
-        
-        # Save debug data
-        self.debug_file.write(str((unsent[0], unsent[1], unsent[2], unsent[3], unsent[4])) + "\n")
-        self.debug_file.flush()
+            print("Reconnecting to BlueNRG2-" + str(self.index + 1) + " because of too many missing paquets")
+            raise WDRError
 
         # Save the data
         tempTuple = (seizure.value,)
         self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
         self.save_file.flush()
+        
+class WDRError(Exception):
+    pass
 
-def run_process(address, index, location, lock, barrier, debugfilename):
-    # Open file to save later on
-    filename = "Output - " + str(location) + " - " + dt.datetime.now().strftime('%c') + ".txt"
-    global connected
-    
+def run_process(peripheral):  
     while True:
-        time.sleep((index+1)*2.02 + random.random())
-        # Connections
-        print("Connecting to BlueNRG2-" + str(index + 1) + " ...")
-        connected = False
-        while not connected:
-            try:
-                BlueNRG = btle.Peripheral(address, btle.ADDR_TYPE_RANDOM)
-                connected = True
-            except:
-                print("Connection was not successfull for BlueNRG2-" + str(index + 1)+ " retrying...")
-        if location == "Left Arm (PPG)":
-            peripheral = PPG(address, index, location, filename, debugfilename)
-        elif location == "Center (ECG)":
-            peripheral = ECG(address, index, location, filename)
-        else:
-            peripheral = ACM(address, index, location, filename)
         try:
+            time.sleep((peripheral.index+1)*2.02 + random.random())
+            # Connections
+            print("Connecting to BlueNRG2-" + str(peripheral.index + 1) + " ...")
+
+            BlueNRG = btle.Peripheral(peripheral.address, btle.ADDR_TYPE_RANDOM)
             BlueNRG.setDelegate(peripheral)
-            # print("BlueNRG2 Services...")
-            for svc in BlueNRG.services:
-                print(str(svc))
 
             # Service retrieval
-            
             BlueNRG_service = BlueNRG.getServiceByUUID(sensor_serive_UUID)
 
             # Char
@@ -220,7 +184,7 @@ def run_process(address, index, location, lock, barrier, debugfilename):
             BlueNRG_1_acc_char = BlueNRG_service.getCharacteristics(acc_UUID)[0]
             BlueNRG_1_start_char = BlueNRG_service.getCharacteristics(start_UUID)[0]
 
-            print("Connection successfull for BlueNRG2-" + str(index + 1) + " ...")
+            print("Connection successfull for BlueNRG2-" + str(peripheral.index + 1) + " ...")
             
             # Waiting to start
             while startNotify.value!=1:
@@ -234,49 +198,53 @@ def run_process(address, index, location, lock, barrier, debugfilename):
             
             # Setting the notifications on
             BlueNRG.writeCharacteristic(BlueNRG_1_acc_char.valHandle + 1, b'\x01\x00')
-            
-        except:
-            print("An error occured while retrieving the services. Restarting...")
-            connected = False
 
-        while connected:
-            try:
+            while True:
                 BlueNRG.waitForNotifications(1.0)
-            except:
-                connected = False
-                print("One of the peripheral disconnected, connecting it and then restarting...")
-        try:
-            BlueNRG.disconnect()
-            del BlueNRG
-            del peripheral
-        except:
-            pass
 
+
+        except btle.BTLEDisconnectError:
+            print("A disconnection occured for BlueNRG2-" + str(peripheral.index + 1)+ " retrying...")
+            # BlueNRG.disconnect()
+            time.sleep(1)
 
 def connectProcedure():
-    global numberofdevices
     connectButton.config(state="disabled")
     disconnectButton.config(state="normal")
     seizureButton.config(state="disabled")
     startButton.config(state="normal")
     identifyDevicesButton.config(state="disabled")
-    lock = Lock()
-    barrier = Barrier(numberofdevices)
-    # Create shared memory
-    global processes
     print("Connecting the devices...")
     # Create dir to save data
     cwd = os.getcwd()
     os.mkdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     os.chdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
-    syncRequest = 0
+    # Create peripheral objects and to the process list
+    processes = []
+    if macAdresses[0] != '':
+        processes.append(Process(target=run_process, args=(PPG(macAdresses[0], 0, locations[0]),)))
+    if macAdresses[1] != '':
+        processes.append(Process(target=run_process, args=(ACM(macAdresses[1], 1, locations[1]),)))
+    if macAdresses[2] != '':
+        processes.append(Process(target=run_process, args=(ACM(macAdresses[2], 2, locations[2]),)))
+    if macAdresses[3] != '':
+        processes.append(Process(target=run_process, args=(ACM(macAdresses[3], 3, locations[3]),)))
+    if macAdresses[4] != '':
+        processes.append(Process(target=run_process, args=(ECG(macAdresses[4], 4, locations[4]),)))
+    # Process for debug file
+    processes.append(Process(target=run_debug))
+    # Start processes
+    for process in processes:
+        process.start()
+
+def run_debug():
     # Create debug file
-    debugfilename = "debug" + " - " + dt.datetime.now().strftime('%c') + ".txt"
-    for idx, name in enumerate(macAdresses):
-        if not(macAdresses[idx]==''):
-            process = Process(target=run_process, args=(macAdresses[idx], idx, locations[idx], lock, barrier, debugfilename))
-            processes[idx] = process
-            process.start()
+    debugfile = open("debug" + " - " + dt.datetime.now().strftime('%c') + ".txt", "a")
+    while True:
+        # Save debug data
+        debugfile.write(str((unsent[0], unsent[1], unsent[2], unsent[3], unsent[4])) + "\n")
+        debugfile.flush()
+        time.sleep(0.1)
 
 def startProcedure():
     global startNotify
@@ -300,20 +268,24 @@ def disconnectProcedure():
     seizureButton.configure(bg="orange")
     seizure.value = 0
     os.chdir("..")
-   
-    for idx, name in enumerate(macAdresses):
-        try:
-            processes[idx].terminate()
-        except AttributeError:
-            pass
+
+    try:
+      parent = psutil.Process(os.getpid())
+    except psutil.NoSuchProcess:
+      return
+    children = parent.children(recursive=True)
+    for process in children:
+      process.send_signal(signal.SIGTERM)
     print("Devices disconnected")
 
 def closeProcedure():
     try:
-        for idx, name in enumerate(macAdresses):
-            processes[idx].terminate()
-    except AttributeError:
-        pass
+      parent = psutil.Process(os.getpid())
+    except psutil.NoSuchProcess:
+      return
+    children = parent.children(recursive=True)
+    for process in children:
+      process.send_signal(signal.SIGTERM)
     print("Application closed by user's request")
     root.destroy()
 
@@ -328,20 +300,13 @@ def seizureSave():
         seizure.value = 0
         print("Seizure identification was removed from the timestamps...")
 
-def identifyDevices(entry1, entry2, entry3, entry4, entry5):
-    global numberofdevices
+def identifyDevices():
+    global macAdresses
     connectButton.config(state="normal")
     disconnectButton.config(state="disabled")
     seizureButton.config(state="disabled")
     identifyDevicesButton.config(state="normal")
-    macAdresses[0] = entry1
-    macAdresses[1] = entry2
-    macAdresses[2] = entry3
-    macAdresses[3] = entry4
-    macAdresses[4] = entry5
-    for idx, name in enumerate(macAdresses):
-        if not (macAdresses[idx]==''):
-            numberofdevices = numberofdevices +1
+    macAdresses = [entries[i].get() for i in range(5)] 
     print("The devices' MAC adresses were changed and added")
     
 def changeDevice(event):
@@ -387,7 +352,7 @@ combo.current(0)
 combo.bind("<<ComboboxSelected>>", changeDevice)
 
 # Buttons
-identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=lambda: identifyDevices(entry_RA.get(), entry_LA.get(), entry_RL.get(), entry_LL.get(), entry_C.get()), padx=20, pady=20)
+identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=identifyDevices, padx=20, pady=20)
 identifyDevicesButton.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
 connectButton = Button(mainFrame, text="CONNECT", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
 connectButton.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
@@ -400,16 +365,12 @@ seizureButton.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
 
     
 #Entry
-entry_RA = Entry(mainFrame, font=40)
-entry_RA.grid(row=0, column=1, padx=10, pady=1)
-entry_LA = Entry(mainFrame, font=40)
-entry_LA.grid(row=1, column=1, padx=10, pady=1)
-entry_RL = Entry(mainFrame, font=40)
-entry_RL.grid(row=2, column=1, padx=10, pady=1)
-entry_LL = Entry(mainFrame, font=40)
-entry_LL.grid(row=3, column=1, padx=10, pady=1)
-entry_C = Entry(mainFrame, font=40)
-entry_C.grid(row=4, column=1, padx=10, pady=1)
+entries = [Entry(mainFrame, font=40) for i in range(5)]
+entries[0].grid(row=0, column=1, padx=10, pady=1)
+entries[1].grid(row=1, column=1, padx=10, pady=1)
+entries[2].grid(row=2, column=1, padx=10, pady=1)
+entries[3].grid(row=3, column=1, padx=10, pady=1)
+entries[4].grid(row=4, column=1, padx=10, pady=1)
 
 #Labels for entries
 label_RA = Label(mainFrame, text="Device 1 - " + str(locations[0])).grid(row=0, column=0, padx=5)
@@ -455,7 +416,4 @@ ani = animation.FuncAnimation(f, animate, fargs=(ys,), interval=20, blit=True)
 while True:
     root.update_idletasks()
     root.update()
-
-
-
 
