@@ -166,7 +166,7 @@ class PPG(MyDelegate):
 class WDRError(Exception):
     pass
 
-def run_process(peripheral):  
+def run_process(peripheral, barrier):  
     while True:
         try:
             time.sleep((peripheral.index+1)*2.02 + random.random())
@@ -185,14 +185,14 @@ def run_process(peripheral):
             BlueNRG_1_start_char = BlueNRG_service.getCharacteristics(start_UUID)[0]
 
             print("Connection successfull for BlueNRG2-" + str(peripheral.index + 1) + " ...")
-            
-            # Waiting to start
-            while startNotify.value!=1:
-                continue
 
             # Wait for connection update
             time.sleep(5)
 
+            # Waiting to start (only for the initial sync)
+            barrier.wait()
+            barrier = Barrier(1)
+            
             # Set timer to the right value
             BlueNRG.writeCharacteristic(BlueNRG_1_start_char.valHandle, (masterclock.value+40).to_bytes(4, byteorder='little'))
             
@@ -201,7 +201,6 @@ def run_process(peripheral):
 
             while True:
                 BlueNRG.waitForNotifications(1.0)
-
 
         except btle.BTLEDisconnectError:
             print("A disconnection occured for BlueNRG2-" + str(peripheral.index + 1)+ " retrying...")
@@ -212,30 +211,32 @@ def connectProcedure():
     connectButton.config(state="disabled")
     disconnectButton.config(state="normal")
     seizureButton.config(state="disabled")
-    startButton.config(state="normal")
     identifyDevicesButton.config(state="disabled")
     print("Connecting the devices...")
     # Create dir to save data
     cwd = os.getcwd()
     os.mkdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     os.chdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
-    # Create peripheral objects and to the process list
-    processes = []
+    # Create peripheral objects
+    peripherals = []
     if macAdresses[0] != '':
-        processes.append(Process(target=run_process, args=(PPG(macAdresses[0], 0, locations[0]),)))
+        peripherals.append(PPG(macAdresses[0], 0, locations[0]),)
     if macAdresses[1] != '':
-        processes.append(Process(target=run_process, args=(ACM(macAdresses[1], 1, locations[1]),)))
+        peripherals.append(ACM(macAdresses[1], 1, locations[1]),)
     if macAdresses[2] != '':
-        processes.append(Process(target=run_process, args=(ACM(macAdresses[2], 2, locations[2]),)))
+        peripherals.append(ACM(macAdresses[2], 2, locations[2]),)
     if macAdresses[3] != '':
-        processes.append(Process(target=run_process, args=(ACM(macAdresses[3], 3, locations[3]),)))
+        peripherals.append(ACM(macAdresses[3], 3, locations[3]),)
     if macAdresses[4] != '':
-        processes.append(Process(target=run_process, args=(ECG(macAdresses[4], 4, locations[4]),)))
-    # Process for debug file
-    processes.append(Process(target=run_debug))
+        peripherals.append(ECG(macAdresses[4], 4, locations[4]),)
+    # Create barrier object
+    barrier = Barrier(len(peripherals))
     # Start processes
-    for process in processes:
+    for peripheral in peripherals:
+        process = Process(target=run_process, args=(peripheral, barrier))
         process.start()
+    Process(target=run_debug).start()
+
 
 def run_debug():
     # Create debug file
@@ -245,16 +246,6 @@ def run_debug():
         debugfile.write(str((unsent[0], unsent[1], unsent[2], unsent[3], unsent[4])) + "\n")
         debugfile.flush()
         time.sleep(0.1)
-
-def startProcedure():
-    global startNotify
-    startNotify.value=1
-    connectButton.config(state="disabled")
-    disconnectButton.config(state="normal")
-    seizureButton.config(state="normal")
-    startButton.config(state="disabled")
-    identifyDevicesButton.config(state="disabled")
-    print("Recording started...")
        
 def disconnectProcedure():
     global startNotify
@@ -264,7 +255,6 @@ def disconnectProcedure():
     disconnectButton.config(state="disabled")
     seizureButton.config(state="disabled")
     identifyDevicesButton.config(state="normal")
-    startButton.config(state="disabled")
     seizureButton.configure(bg="orange")
     seizure.value = 0
     os.chdir("..")
@@ -354,10 +344,8 @@ combo.bind("<<ComboboxSelected>>", changeDevice)
 # Buttons
 identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=identifyDevices, padx=20, pady=20)
 identifyDevicesButton.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
-connectButton = Button(mainFrame, text="CONNECT", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
+connectButton = Button(mainFrame, text="CONNECT & START", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
 connectButton.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
-startButton = Button(mainFrame, text="SYNC AND START", bg="orange", fg="white", command=startProcedure, padx=20, pady=20, state="disable")
-startButton.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
 disconnectButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20, state="disable")
 disconnectButton.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
 seizureButton = Button(mainFrame, text="IDENTIFY SEIZURE", bg="orange", fg="white", command=seizureSave, padx=20, pady=20, state="disable")
