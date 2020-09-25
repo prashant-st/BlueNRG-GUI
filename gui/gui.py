@@ -28,9 +28,6 @@ data = Array('h', 15)
 unsent = Array('H', 5)
 masterclock = Value('I', 0)
 seizure = Value('i', 0)
-startNotify = Value('i', 0)
-
-
 
 root = Tk()
 root.title("Multimodal Seizure Detection Utility")
@@ -41,17 +38,35 @@ plt.style.use('ggplot')
 
 
 class MyDelegate(btle.DefaultDelegate):
+    badconnectiontresh = 500 #number of times unsent>240 before disconnect
+    
     def __init__(self, _address, _index, _location):
         btle.DefaultDelegate.__init__(self)
         self.address = _address
         self.index = _index
         self.location = _location
-        self.watchdog = 500 #number of times unsent>240 before disconnect
-        self.watchdogcounter = 0 #number of times unsent>240
+        self.badconnectioncounter = 0 #number of times unsent>240
         self.save_file = open("Output - " + str(_location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "a")
 
     def __del__(self):
         self.save_file.close()
+        
+    def evaluateConnectionQuality(self):
+        # Update counter if connection is bad
+        if unsent[self.index] > 240:
+            self.badconnectioncounter += 1
+        else:
+            self.badconnectioncounter = 0
+
+        # Disconnect if connection has been bad for a while
+        if(self.badconnectioncounter == self.badconnectiontresh):
+            print("Reconnecting to BlueNRG2-" + str(self.index + 1) + " because of too many missing paquets")
+            raise WDRError
+    
+    def saveData(self, data_unpacked):
+        self.save_file.write(str(data_unpacked + (seizure.value,)) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+        self.save_file.flush()
+        
 
 
 class ACM(MyDelegate):
@@ -59,9 +74,8 @@ class ACM(MyDelegate):
         MyDelegate.__init__(self, _address, _index, _location)
         
     def handleNotification(self, cHandle, data_BLE):
-        global data
-
         data_unpacked=unpack('hhhhhhIH', data_BLE)
+        
         # Device identification and allocation in the shared array
         # Depending on the device, different data will be displayed
         for i in range(3):
@@ -69,34 +83,21 @@ class ACM(MyDelegate):
 
         # Get the number of unsent samples on the peripheral side
         unsent[self.index] = data_unpacked[7]
-
-        # Update counter if connection is bad
-        if(unsent[self.index] > 240):
-            self.watchdogcounter = self.watchdogcounter + 1
-        else:
-            self.watchdogcounter = 0
-
+        
         # Update master clock
         if(data_unpacked[6] > masterclock.value):
             masterclock.value = data_unpacked[6]
 
-        # Disconnect if watchdog is reached
-        if(self.watchdogcounter == self.watchdog):
-            print("Reconnecting to BlueNRG2-" + str(self.index + 1) + " because of too many missing paquets")
-            raise WDRError
+        self.evaluateConnectionQuality()
                     
-        # Save the data
-        tempTuple = (seizure.value,)
-        self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
-        self.save_file.flush()
+        self.saveData(data_unpacked)
+
 				
 class ECG(MyDelegate):
     def __init__(self, _address, _index, _location):
         MyDelegate.__init__(self, _address, _index, _location)
         
     def handleNotification(self, cHandle, data_BLE):
-        global data
-
         data_unpacked=unpack('hhh', data_BLE[0:6]) + unpack('<i', data_BLE[6:9] + b'\x00') + unpack('<i', data_BLE[9:12] + b'\x00') + unpack('<i', data_BLE[12:15] + b'\x00') + unpack('I', data_BLE[15:19]) +  (data_BLE[19],)
 
         # Device identification and allocation in the shared array
@@ -106,35 +107,22 @@ class ECG(MyDelegate):
 
         # Get the number of unsent samples on the peripheral side
         unsent[self.index] = data_unpacked[7]
-
-        # Update counter if connection is bad
-        if(unsent[self.index] > 240):
-            self.watchdogcounter = self.watchdogcounter + 1
-        else:
-            self.watchdogcounter = 0
-
+        
         # Update master clock
         if(data_unpacked[6] > masterclock.value):
             masterclock.value = data_unpacked[6]
-            
-        # Disconnect if watchdog is reached
-        if(self.watchdogcounter == self.watchdog):
-            print("Reconnecting to BlueNRG2-" + str(self.index + 1) + " because of too many missing paquets")
-            raise WDRError
 
-        # Save the data
-        tempTuple = (seizure.value,)
-        self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
-        self.save_file.flush()
+        self.evaluateConnectionQuality()
+
+        self.saveData(data_unpacked)
 				
 class PPG(MyDelegate):
     def __init__(self, _address, _index, _location):
         MyDelegate.__init__(self, _address, _index, _location)
     
     def handleNotification(self, cHandle, data_BLE):
-        global data
-        
         data_unpacked=unpack('=hhhIIIH', data_BLE)
+        
         # Device identification and allocation in the shared array
         # Depending on the device, different data will be displayed
         data[self.index*3] = data_unpacked[3]
@@ -142,26 +130,14 @@ class PPG(MyDelegate):
 
         # Get the number of unsent samples on the peripheral side
         unsent[self.index] = data_unpacked[6]
-
-        # Update counter if connection is bad
-        if(unsent[self.index] > 240):
-            self.watchdogcounter = self.watchdogcounter + 1
-        else:
-            self.watchdogcounter = 0
-
+        
         # Update master clock
         if(data_unpacked[5] > masterclock.value):
             masterclock.value = data_unpacked[5]
+        
+        self.evaluateConnectionQuality()
 
-        # Disconnect if watchdog is reached
-        if(self.watchdogcounter == self.watchdog):
-            print("Reconnecting to BlueNRG2-" + str(self.index + 1) + " because of too many missing paquets")
-            raise WDRError
-
-        # Save the data
-        tempTuple = (seizure.value,)
-        self.save_file.write(str(data_unpacked + tempTuple) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
-        self.save_file.flush()
+        self.saveData(data_unpacked)
         
 class WDRError(Exception):
     pass
@@ -248,8 +224,6 @@ def run_debug():
         time.sleep(0.1)
        
 def disconnectProcedure():
-    global startNotify
-    startNotify.value=0
     masterclock.value = 0
     connectButton.config(state="normal")
     disconnectButton.config(state="disabled")
