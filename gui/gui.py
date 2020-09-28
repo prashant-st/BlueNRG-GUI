@@ -1,3 +1,6 @@
+from peripherals import *
+from processes import *
+from settings import *
 from tkinter import *
 from tkinter import ttk
 import matplotlib
@@ -17,171 +20,7 @@ import time
 import random
 import signal, psutil
 
-# Globals
-macAdresses = []
-locations = ["Left Arm (PPG)","Right Arm", "Right Leg", "Left Leg", "Center (ECG)"]
-
-# Constants
-SENSOR_SERVICE_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
-ACC_SERVICE_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
-START_SERVICE_UUID = '2c41cc24-cf13-11e1-4fdf-0002a5d5c51b'
-
-# Shared variables among processes
-dataToDisplay = Array('h', 15)
-unsent = Array('H', 5)
-masterClock = Value('I', 0)
-seizure = Value('i', 0)
-
-root = Tk()
-root.title("Multimodal Seizure Detection Utility")
-root.geometry("1000x600")
-root.resizable(0, 0)
-plt.style.use('ggplot')
-
-
-class MyDelegate(btle.DefaultDelegate):
-    badConnectionTreshold = 500 
-    
-    def __init__(self, address, index, location):
-        btle.DefaultDelegate.__init__(self)
-        self.address = address
-        self.index = index
-        self.location = location
-        self.badConnectionCounter = 0 
-        self.saveFile = open("Output - " + str(location) + " - " + dt.datetime.now().strftime('%c') + ".txt", "a")
-
-    def __del__(self):
-        self.saveFile.close()
-        
-    def evaluateConnectionQuality(self):
-        # Update counter if connection is bad
-        if unsent[self.index] > 240:
-            self.badConnectionCounter += 1
-        else:
-            self.badConnectionCounter = 0
-
-        # Disconnect if connection has been bad for a while
-        if(self.badConnectionCounter == self.badConnectionTreshold):
-            print("Reconnecting to BlueNRG2-" + str(self.index + 1) + " because of too many missing paquets")
-            raise btle.BTLEDisconnectError
-    
-    def saveData(self, dataUnpacked):
-        self.saveFile.write(str(dataUnpacked + (seizure.value,)) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
-        self.saveFile.flush()
-        
-
-
-class ACM(MyDelegate):
-    def __init__(self, address, index, location):
-        MyDelegate.__init__(self, address, index, location)
-        
-    def handleNotification(self, cHandle, dataBLE):
-        dataUnpacked=unpack('hhhhhhIH', dataBLE)
-        
-        # Device identification and allocation in the shared array
-        # Depending on the device, different data will be displayed
-        for i in range(3):
-            dataToDisplay[i + self.index*3] = dataUnpacked[i]
-
-        # Get the number of unsent samples on the peripheral side
-        unsent[self.index] = dataUnpacked[7]
-        
-        # Update master clock
-        if(dataUnpacked[6] > masterClock.value):
-            masterClock.value = dataUnpacked[6]
-
-        self.evaluateConnectionQuality()
-                    
-        self.saveData(dataUnpacked)
-
-				
-class ECG(MyDelegate):
-    def __init__(self, address, index, location):
-        MyDelegate.__init__(self, address, index, location)
-        
-    def handleNotification(self, cHandle, dataBLE):
-        dataUnpacked=unpack('hhh', dataBLE[0:6]) + unpack('<i', dataBLE[6:9] + b'\x00') + unpack('<i', dataBLE[9:12] + b'\x00') + unpack('<i', dataBLE[12:15] + b'\x00') + unpack('I', dataBLE[15:19]) +  (dataBLE[19],)
-
-        # Device identification and allocation in the shared array
-        # Depending on the device, different data will be displayed
-        dataToDisplay[self.index*3] = dataUnpacked[3]
-        dataToDisplay[(self.index*3)+1] = dataUnpacked[4]
-
-        # Get the number of unsent samples on the peripheral side
-        unsent[self.index] = dataUnpacked[7]
-        
-        # Update master clock
-        if(dataUnpacked[6] > masterClock.value):
-            masterClock.value = dataUnpacked[6]
-
-        self.evaluateConnectionQuality()
-
-        self.saveData(dataUnpacked)
-				
-class PPG(MyDelegate):
-    def __init__(self, address, index, location):
-        MyDelegate.__init__(self, address, index, location)
-    
-    def handleNotification(self, cHandle, dataBLE):
-        dataUnpacked=unpack('=hhhIIIH', dataBLE)
-        
-        # Device identification and allocation in the shared array
-        # Depending on the device, different data will be displayed
-        dataToDisplay[self.index*3] = dataUnpacked[3]
-        dataToDisplay[(self.index*3)+1] = dataUnpacked[4]
-
-        # Get the number of unsent samples on the peripheral side
-        unsent[self.index] = dataUnpacked[6]
-        
-        # Update master clock
-        if(dataUnpacked[5] > masterClock.value):
-            masterClock.value = dataUnpacked[5]
-        
-        self.evaluateConnectionQuality()
-
-        self.saveData(dataUnpacked)
-
-def runProcess(peripheral, barrier):  
-    while True:
-        try:
-            time.sleep((peripheral.index+1)*2.02 + random.random())
-            # Connections
-            print("Connecting to BlueNRG2-" + str(peripheral.index + 1) + " ...")
-
-            BlueNRG = btle.Peripheral(peripheral.address, btle.ADDR_TYPE_RANDOM)
-            BlueNRG.setDelegate(peripheral)
-
-            # Service retrieval
-            BlueNRGService = BlueNRG.getServiceByUUID(SENSOR_SERVICE_UUID)
-
-            # Char
-            # print("BlueNRG2 Characteristics...")
-            BlueNRGAccChar = BlueNRGService.getCharacteristics(ACC_SERVICE_UUID)[0]
-            BlueNRGStartChar = BlueNRGService.getCharacteristics(START_SERVICE_UUID)[0]
-
-            print("Connection successfull for BlueNRG2-" + str(peripheral.index + 1) + " ...")
-
-            # Wait for connection update
-            time.sleep(5)
-
-            # Waiting to start (only for the initial sync)
-            barrier.wait()
-            barrier = Barrier(1)
-            
-            # Set timer to the right value
-            BlueNRG.writeCharacteristic(BlueNRGStartChar.valHandle, (masterClock.value+40).to_bytes(4, byteorder='little'))
-            
-            # Setting the notifications on
-            BlueNRG.writeCharacteristic(BlueNRGAccChar.valHandle + 1, b'\x01\x00')
-
-            while True:
-                BlueNRG.waitForNotifications(1.0)
-
-        except btle.BTLEDisconnectError:
-            print("A disconnection occured for BlueNRG2-" + str(peripheral.index + 1)+ " retrying...")
-            # BlueNRG.disconnect()
-            time.sleep(1)
-
+# Commands
 def connectProcedure():
     connectButton.config(state="disabled")
     disconnectButton.config(state="normal")
@@ -195,15 +34,15 @@ def connectProcedure():
     # Create peripheral objects
     peripherals = []
     if macAdresses[0] != '':
-        peripherals.append(PPG(macAdresses[0], 0, locations[0]),)
+        peripherals.append(PPG(macAdresses[0], 0, LOCATIONS[0]),)
     if macAdresses[1] != '':
-        peripherals.append(ACM(macAdresses[1], 1, locations[1]),)
+        peripherals.append(ACM(macAdresses[1], 1, LOCATIONS[1]),)
     if macAdresses[2] != '':
-        peripherals.append(ACM(macAdresses[2], 2, locations[2]),)
+        peripherals.append(ACM(macAdresses[2], 2, LOCATIONS[2]),)
     if macAdresses[3] != '':
-        peripherals.append(ACM(macAdresses[3], 3, locations[3]),)
+        peripherals.append(ACM(macAdresses[3], 3, LOCATIONS[3]),)
     if macAdresses[4] != '':
-        peripherals.append(ECG(macAdresses[4], 4, locations[4]),)
+        peripherals.append(ECG(macAdresses[4], 4, LOCATIONS[4]),)
     # Create barrier object
     barrier = Barrier(len(peripherals))
     # Start processes
@@ -211,25 +50,6 @@ def connectProcedure():
         process = Process(target=runProcess, args=(peripheral, barrier))
         process.start()
     Process(target=runDebug).start()
-
-
-def runDebug():
-    # Create debug file
-    debugfile = open("debug" + " - " + dt.datetime.now().strftime('%c') + ".txt", "a")
-    while True:
-        # Save debug data
-        debugfile.write(str((unsent[0], unsent[1], unsent[2], unsent[3], unsent[4])) + "\n")
-        debugfile.flush()
-        time.sleep(0.1)
-        
-def killAllProcesses():
-    try:
-      parent = psutil.Process(os.getpid())
-    except psutil.NoSuchProcess:
-      return
-    children = parent.children(recursive=True)
-    for process in children:
-      process.send_signal(signal.SIGTERM)
        
 def disconnectProcedure():
     masterClock.value = 0
@@ -288,6 +108,12 @@ def animate(i, ys):
 
     return line
 
+root = Tk()
+root.title("Multimodal Seizure Detection Utility")
+root.geometry("1000x600")
+root.resizable(0, 0)
+plt.style.use('ggplot')
+
 # Creating main frame
 mainFrame = Frame(root, width=500, height=500)
 mainFrame.grid(column=0, row=0, sticky=(N, W, E, S))
@@ -298,7 +124,7 @@ root.rowconfigure(0, weight=1)
 root.protocol('WM_DELETE_WINDOW', closeProcedure)
 
 # Combobox
-combo = ttk.Combobox(root, values = ["Device 1 - " + str(locations[0]), "Device 2 - " + str(locations[1]), "Device 3 - " + str(locations[2]), "Device 4 - " + str(locations[3]), "Device 5 - " + str(locations[4])])
+combo = ttk.Combobox(root, values = ["Device 1 - " + str(LOCATIONS[0]), "Device 2 - " + str(LOCATIONS[1]), "Device 3 - " + str(LOCATIONS[2]), "Device 4 - " + str(LOCATIONS[3]), "Device 5 - " + str(LOCATIONS[4])])
 combo.grid(row=1, column=2, padx=10, pady=5)
 combo.current(0)
 combo.bind("<<ComboboxSelected>>", changeDevice)
@@ -323,7 +149,7 @@ for i in range(5):
 
 # Labels for entries
 for i in range(5):
-    label = Label(mainFrame, text="Device " + str(i) + " - " + str(locations[i]))
+    label = Label(mainFrame, text="Device " + str(i) + " - " + str(LOCATIONS[i]))
     label.grid(row=i, column=0, padx=5)
 
 # Plot Initialization
