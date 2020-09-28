@@ -1,22 +1,9 @@
-from tkinter import *
-from tkinter import ttk
 from settings import *
-import matplotlib
-matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-import os
-from multiprocessing import Value, Array, Process, Lock, Barrier
+import logging
+import logging.handlers
 from bluepy import btle
 from struct import *
-import sys
-import matplotlib.animation as animation
-import numpy as np
 import datetime as dt
-import time
-import random
-import signal, psutil
 
 class MyDelegate(btle.DefaultDelegate):
     badConnectionTreshold = 500 
@@ -32,16 +19,21 @@ class MyDelegate(btle.DefaultDelegate):
     def __del__(self):
         self.saveFile.close()
         
-    def evaluateConnectionQuality(self):
+    def evaluateConnectionQuality(self, unsent):
+        logger = logging.getLogger()
         # Update counter if connection is bad
-        if unsent[self.index] > 240:
+        if unsent > 10:
+            if self.badConnectionCounter == 0:
+                logger.log(logging.WARNING, "Connection is bad for BlueNRG - " + self.location + " Device")
             self.badConnectionCounter += 1
         else:
+            if self.badConnectionCounter != 0:
+                logger.log(logging.WARNING, "Connection is recovered for BlueNRG - " + self.location + " Device")
             self.badConnectionCounter = 0
 
         # Disconnect if connection has been bad for a while
         if(self.badConnectionCounter == self.badConnectionTreshold):
-            print("Reconnecting to BlueNRG2-" + str(self.index + 1) + " because of too many missing paquets")
+            logger.log(logging.ERROR, "Reconnecting to BlueNRG - " + self.location + " Device because of too many missing paquets")
             raise btle.BTLEDisconnectError
     
     def saveData(self, dataUnpacked):
@@ -61,15 +53,12 @@ class ACM(MyDelegate):
         # Depending on the device, different data will be displayed
         for i in range(3):
             dataToDisplay[i + self.index*3] = dataUnpacked[i]
-
-        # Get the number of unsent samples on the peripheral side
-        unsent[self.index] = dataUnpacked[7]
         
         # Update master clock
         if(dataUnpacked[6] > masterClock.value):
             masterClock.value = dataUnpacked[6]
 
-        self.evaluateConnectionQuality()
+        self.evaluateConnectionQuality(dataUnpacked[7])
                     
         self.saveData(dataUnpacked)
 
@@ -85,15 +74,12 @@ class ECG(MyDelegate):
         # Depending on the device, different data will be displayed
         dataToDisplay[self.index*3] = dataUnpacked[3]
         dataToDisplay[(self.index*3)+1] = dataUnpacked[4]
-
-        # Get the number of unsent samples on the peripheral side
-        unsent[self.index] = dataUnpacked[7]
         
         # Update master clock
         if(dataUnpacked[6] > masterClock.value):
             masterClock.value = dataUnpacked[6]
 
-        self.evaluateConnectionQuality()
+        self.evaluateConnectionQuality(dataUnpacked[7])
 
         self.saveData(dataUnpacked)
 				
@@ -108,15 +94,11 @@ class PPG(MyDelegate):
         # Depending on the device, different data will be displayed
         dataToDisplay[self.index*3] = dataUnpacked[3]
         dataToDisplay[(self.index*3)+1] = dataUnpacked[4]
-
-        # Get the number of unsent samples on the peripheral side
-        unsent[self.index] = dataUnpacked[6]
         
         # Update master clock
         if(dataUnpacked[5] > masterClock.value):
             masterClock.value = dataUnpacked[5]
         
-        self.evaluateConnectionQuality()
+        self.evaluateConnectionQuality(dataUnpacked[6])
 
         self.saveData(dataUnpacked)
-

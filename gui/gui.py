@@ -9,16 +9,10 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import os
-from multiprocessing import Value, Array, Process, Lock, Barrier
+from multiprocessing import Process, Barrier, Queue
 from bluepy import btle
-from struct import *
-import sys
 import matplotlib.animation as animation
-import numpy as np
 import datetime as dt
-import time
-import random
-import signal, psutil
 
 # Commands
 def connectProcedure():
@@ -45,11 +39,15 @@ def connectProcedure():
         peripherals.append(ECG(macAdresses[4], 4, LOCATIONS[4]),)
     # Create barrier object
     barrier = Barrier(len(peripherals))
+    # Configure and start logging processes
+    queue = Queue(-1)
+    process = Process(target=runLogger, args=(queue,))
+    process.start()
     # Start processes
     for peripheral in peripherals:
-        process = Process(target=runProcess, args=(peripheral, barrier))
+        process = Process(target=runProcess, args=(peripheral, barrier, queue))
         process.start()
-    Process(target=runDebug).start()
+    
        
 def disconnectProcedure():
     masterClock.value = 0
@@ -72,11 +70,11 @@ def seizureSave():
     if seizure.value == 0:
         seizureButton.configure(bg="red")
         seizure.value = 1
-        print("Seizure identification was added to the timestamps...")
+        print("Seizure identification was added to the timestamps")
     else:
         seizureButton.configure(bg="orange")
         seizure.value = 0
-        print("Seizure identification was removed from the timestamps...")
+        print("Seizure identification was removed from the timestamps")
 
 def identifyDevices():
     global macAdresses
@@ -105,7 +103,6 @@ def animate(i, ys):
         ys[idx].append(dataToDisplay[idx + deviceidx])
         ys[idx] = ys[idx][-x_len:]
         line[idx].set_ydata(ys[idx])
-
     return line
 
 root = Tk()
@@ -164,10 +161,7 @@ for i in range(3):
 f = Figure(figsize=(5, 5), dpi=100)
 a = f.add_subplot(111)
 # Create a blank line. We will update the line in animate
-line1, = a.plot(xs, ys[0])
-line2, = a.plot(xs, ys[1])
-line3, = a.plot(xs, ys[2])
-line = [line1, line2, line3]
+line = [a.plot(xs, ys[i])[0] for i in range(3)]
 
 a.set_ylim(y_range)
 a.set_title('Device 1 Data')

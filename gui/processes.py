@@ -1,18 +1,9 @@
-from tkinter import *
-from tkinter import ttk
 from settings import *
-import matplotlib
-matplotlib.use("TkAgg")
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
+import logging
+import logging.handlers
 import os
-from multiprocessing import Value, Array, Process, Lock, Barrier
+from multiprocessing import Array, Barrier
 from bluepy import btle
-from struct import *
-import sys
-import matplotlib.animation as animation
-import numpy as np
 import datetime as dt
 import time
 import random
@@ -23,12 +14,18 @@ SENSOR_SERVICE_UUID = '02366e80-cf3a-11e1-9ab4-0002a5d5c51b'
 ACC_SERVICE_UUID = '340a1b80-cf4b-11e1-ac36-0002a5d5c51b'
 START_SERVICE_UUID = '2c41cc24-cf13-11e1-4fdf-0002a5d5c51b'
 
-def runProcess(peripheral, barrier):  
+def runProcess(peripheral, barrier, queue):  
+    # Logging configuration
+    h = logging.handlers.QueueHandler(queue)  # Just the one handler needed
+    logger = logging.getLogger()
+    logger.addHandler(h)
+    logger.setLevel(logging.DEBUG)
+    
     while True:
         try:
             time.sleep((peripheral.index+1)*2.02 + random.random())
             # Connections
-            print("Connecting to BlueNRG2-" + str(peripheral.index + 1) + " ...")
+            print("Connecting to BlueNRG - " + peripheral.location + " Device...")
 
             BlueNRG = btle.Peripheral(peripheral.address, btle.ADDR_TYPE_RANDOM)
             BlueNRG.setDelegate(peripheral)
@@ -37,11 +34,10 @@ def runProcess(peripheral, barrier):
             BlueNRGService = BlueNRG.getServiceByUUID(SENSOR_SERVICE_UUID)
 
             # Char
-            # print("BlueNRG2 Characteristics...")
             BlueNRGAccChar = BlueNRGService.getCharacteristics(ACC_SERVICE_UUID)[0]
             BlueNRGStartChar = BlueNRGService.getCharacteristics(START_SERVICE_UUID)[0]
 
-            print("Connection successfull for BlueNRG2-" + str(peripheral.index + 1) + " ...")
+            print("Connection successfull for BlueNRG - " + peripheral.location + " Device...")
 
             # Wait for connection update
             time.sleep(5)
@@ -60,18 +56,24 @@ def runProcess(peripheral, barrier):
                 BlueNRG.waitForNotifications(1.0)
 
         except btle.BTLEDisconnectError:
-            print("A disconnection occured for BlueNRG2-" + str(peripheral.index + 1)+ " retrying...")
-            # BlueNRG.disconnect()
+            print("A disconnection occured for BlueNRG - " + peripheral.location + " Device. Retrying...")
             time.sleep(1)
 
-def runDebug():
-    # Create debug file
-    debugfile = open("debug" + " - " + dt.datetime.now().strftime('%c') + ".txt", "a")
+def runLogger(queue):
+    # Configure logger
+    logger = logging.getLogger()
+    h = logging.handlers.WatchedFileHandler('logger.log', 'a')
+    f = logging.Formatter('%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s')
+    h.setFormatter(f)
+    logger.addHandler(h)
     while True:
-        # Save debug data
-        debugfile.write(str((*unsent,)) + "\n")
-        debugfile.flush()
-        time.sleep(0.1)
+        try:
+            record = queue.get()
+            logger.handle(record)
+        except Exception:
+            import sys, traceback
+            print('Error Problem:', file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
 
 def killAllProcesses():
     try:
