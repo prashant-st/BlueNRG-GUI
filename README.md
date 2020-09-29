@@ -2,7 +2,7 @@ BlueNRG-GUI
 ======
 Python Bluetooth LE Graphical User Interface
 for real-time synchronized data acquisition on Linux.
-The project was develooped on a Raspberry Pi.
+The project was developed on a Raspberry Pi.
 
 The GUI uses bluepy, tkinter and matplotlib as its core modules.
 Up to five devices can be connected and recorded from simultaneously.
