@@ -37,7 +37,7 @@ class MyDelegate(btle.DefaultDelegate):
             raise btle.BTLEDisconnectError
     
     def saveData(self, dataUnpacked):
-        self.saveFile.write(str(dataUnpacked + (seizure.value,)) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
+        self.saveFile.write(str(dataUnpacked + (identifyActivity.value,)) + "\t" + dt.datetime.now().strftime('%m/%d/%Y, %H:%M:%S.%f') + "\n")
         self.saveFile.flush()
         
 
@@ -60,45 +60,4 @@ class ACM(MyDelegate):
 
         self.evaluateConnectionQuality(dataUnpacked[7])
                     
-        self.saveData(dataUnpacked)
-
-				
-class ECG(MyDelegate):
-    def __init__(self, address, index, location):
-        MyDelegate.__init__(self, address, index, location)
-        
-    def handleNotification(self, cHandle, dataBLE):
-        dataUnpacked=unpack('hhh', dataBLE[0:6]) + unpack('<i', dataBLE[6:9] + b'\x00') + unpack('<i', dataBLE[9:12] + b'\x00') + unpack('<i', dataBLE[12:15] + b'\x00') + unpack('I', dataBLE[15:19]) +  (dataBLE[19],)
-
-        # Device identification and allocation in the shared array
-        # Depending on the device, different data will be displayed
-        dataToDisplay[self.index*3] = dataUnpacked[3]
-        dataToDisplay[(self.index*3)+1] = dataUnpacked[4]
-        
-        # Update master clock
-        if(dataUnpacked[6] > masterClock.value):
-            masterClock.value = dataUnpacked[6]
-
-        self.evaluateConnectionQuality(dataUnpacked[7])
-
-        self.saveData(dataUnpacked)
-				
-class PPG(MyDelegate):
-    def __init__(self, address, index, location):
-        MyDelegate.__init__(self, address, index, location)
-    
-    def handleNotification(self, cHandle, dataBLE):
-        dataUnpacked=unpack('=hhhIIIH', dataBLE)
-        
-        # Device identification and allocation in the shared array
-        # Depending on the device, different data will be displayed
-        dataToDisplay[self.index*3] = dataUnpacked[3]
-        dataToDisplay[(self.index*3)+1] = dataUnpacked[4]
-        
-        # Update master clock
-        if(dataUnpacked[5] > masterClock.value):
-            masterClock.value = dataUnpacked[5]
-        
-        self.evaluateConnectionQuality(dataUnpacked[6])
-
         self.saveData(dataUnpacked)

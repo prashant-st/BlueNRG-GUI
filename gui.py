@@ -1,4 +1,4 @@
-from peripherals import *
+from peripheral import *
 from processes import *
 from settings import *
 from tkinter import *
@@ -18,7 +18,7 @@ import datetime as dt
 def connectProcedure():
     connectButton.config(state="disabled")
     disconnectButton.config(state="normal")
-    seizureButton.config(state="disabled")
+    identifyActivityButton.config(state="normal")
     identifyDevicesButton.config(state="disabled")
     print("Connecting the devices...")
     # Create dir to save data
@@ -26,17 +26,7 @@ def connectProcedure():
     os.mkdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     os.chdir(cwd + "/Recordings - " + dt.datetime.now().strftime('%c'))
     # Create peripheral objects
-    peripherals = []
-    if macAdresses[0] != '':
-        peripherals.append(PPG(macAdresses[0], 0, LOCATIONS[0]),)
-    if macAdresses[1] != '':
-        peripherals.append(ACM(macAdresses[1], 1, LOCATIONS[1]),)
-    if macAdresses[2] != '':
-        peripherals.append(ACM(macAdresses[2], 2, LOCATIONS[2]),)
-    if macAdresses[3] != '':
-        peripherals.append(ACM(macAdresses[3], 3, LOCATIONS[3]),)
-    if macAdresses[4] != '':
-        peripherals.append(ECG(macAdresses[4], 4, LOCATIONS[4]),)
+    peripherals = [ACM(macAdresses[i], i, LOCATIONS[i]) for i in range(5) if macAdresses[i] != '']
     # Create barrier object
     barrier = Barrier(len(peripherals))
     # Configure and start logging processes
@@ -53,10 +43,10 @@ def disconnectProcedure():
     masterClock.value = 0
     connectButton.config(state="normal")
     disconnectButton.config(state="disabled")
-    seizureButton.config(state="disabled")
+    identifyActivityButton.config(state="disabled")
     identifyDevicesButton.config(state="normal")
-    seizureButton.configure(bg="orange")
-    seizure.value = 0
+    identifyActivityButton.configure(bg="orange")
+    identifyActivity.value = 0
     os.chdir("..")
     killAllProcesses()
     print("Devices disconnected")
@@ -66,21 +56,21 @@ def closeProcedure():
     print("Application closed by user's request")
     root.destroy()
 
-def seizureSave():
-    if seizure.value == 0:
-        seizureButton.configure(bg="red")
-        seizure.value = 1
-        print("Seizure identification was added to the timestamps")
+def identifyActivityProcedure():
+    if identifyActivity.value == 0:
+        identifyActivityButton.configure(bg="red")
+        identifyActivity.value = 1
+        print("Activity identification was added to the timestamps")
     else:
-        seizureButton.configure(bg="orange")
-        seizure.value = 0
-        print("Seizure identification was removed from the timestamps")
+        identifyActivityButton.configure(bg="orange")
+        identifyActivity.value = 0
+        print("Activity identification was removed from the timestamps")
 
-def identifyDevices():
+def identifyDevicesProcedure():
     global macAdresses
     connectButton.config(state="normal")
     disconnectButton.config(state="disabled")
-    seizureButton.config(state="disabled")
+    identifyActivityButton.config(state="disabled")
     identifyDevicesButton.config(state="normal")
     macAdresses = [entries[i].get() for i in range(5)] 
     print("The devices' MAC adresses were changed and added")
@@ -106,7 +96,7 @@ def animate(i, ys):
     return line
 
 root = Tk()
-root.title("Multimodal Seizure Detection Utility")
+root.title("Activity Recognition based on Movement Utility")
 root.geometry("1000x600")
 root.resizable(0, 0)
 plt.style.use('ggplot')
@@ -127,14 +117,14 @@ combo.current(0)
 combo.bind("<<ComboboxSelected>>", changeDevice)
 
 # Buttons
-identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=identifyDevices, padx=20, pady=20)
+identifyDevicesButton = Button(mainFrame, text="IDENTIFY DEVICES", bg="orange", fg="white", command=identifyDevicesProcedure, padx=20, pady=20)
 identifyDevicesButton.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
 connectButton = Button(mainFrame, text="CONNECT & START", bg="orange", fg="white", command=connectProcedure, padx=20, pady=20, state="disable")
 connectButton.grid(row=6, column=0, columnspan=2, padx=10, pady=10)
 disconnectButton = Button(mainFrame, text="DISCONNECT", bg="orange", fg="white", command=disconnectProcedure, padx=20, pady=20, state="disable")
 disconnectButton.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
-seizureButton = Button(mainFrame, text="IDENTIFY SEIZURE", bg="orange", fg="white", command=seizureSave, padx=20, pady=20, state="disable")
-seizureButton.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
+identifyActivityButton = Button(mainFrame, text="IDENTIFY ACTIVITY", bg="orange", fg="white", command=identifyActivityProcedure, padx=20, pady=20, state="disable")
+identifyActivityButton.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
 
 # Entry
 entries = []
@@ -146,7 +136,7 @@ for i in range(5):
 
 # Labels for entries
 for i in range(5):
-    label = Label(mainFrame, text="Device " + str(i) + " - " + str(LOCATIONS[i]))
+    label = Label(mainFrame, text="MAC Adress -" + " Device " + str(i+1) + " - " + str(LOCATIONS[i]))
     label.grid(row=i, column=0, padx=5)
 
 # Plot Initialization
